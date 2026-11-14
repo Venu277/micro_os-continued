@@ -1,4 +1,5 @@
 pub mod e1000;
+pub mod wifi;
 
 use alloc::string::String;
 use alloc::vec;
@@ -325,6 +326,9 @@ pub fn init_network(
         let stack = NetworkStack::new(mac);
         *NETWORK.lock() = Some(stack);
         serial_println!("LAN Networking & smoltcp stack initialized (IP: 10.0.2.15/24, GW: 10.0.2.2).");
+
+        // Initialize 802.11 WiFi subsystem
+        wifi::init_wifi(mac);
     } else {
         serial_println!("No Intel e1000 NIC detected on PCI bus.");
     }

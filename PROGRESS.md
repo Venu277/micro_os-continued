@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 6 — LAN Networking (Intel e1000 & smoltcp) ✅
+## Current Step: Step 7 — WiFi Layer (Simulation & Driver Trait) ✅
 
 **Date:** 2026-11-15
 
@@ -57,11 +57,23 @@
 - **Intel e1000 Hardware Driver (`src/net/e1000.rs`)**: Mapped controller MMIO space into kernel paging table. Initialized circular DMA Tx ring (16 descriptors) and Rx ring (32 descriptors) with 2048-byte packet buffers translated to physical frames. Handled controller reset, SLU, RCTL/TCTL registers, and programmed MAC address into RAL0/RAH0 with AV bit.
 - **smoltcp Protocol Stack (`src/net/mod.rs`)**: Implemented `smoltcp::phy::Device` for `E1000Phy` with zero-allocation RxToken/TxToken. Initialized `Interface` with static IP (`10.0.2.15/24`) and default gateway (`10.0.2.2`). Implemented `ping()` with RTT calculation and TCP client for `curl`.
 - **Shell Commands (`src/shell.rs`)**: Integrated `ifconfig` (IP, MAC, GW, packet counters), `ping` (ICMP Echo Request/Reply), and `curl` / `http-get` (HTTP/1.0 GET).
-- **Test Suite**: Created `tests/networking.rs`. Full test suite now passes **26/26 tests** cleanly across all 5 test binaries.
+- **Test Suite**: Created `tests/networking.rs`. Full test suite passed 26/26 tests cleanly across all 5 test binaries.
+
+### Step 7: WiFi Layer Simulation & 802.11 Driver Trait ✅
+- **WiFi Driver Trait (`src/net/wifi.rs`)**: Created extensible `WiFiDriver` trait (`name`, `mac_address`, `scan`, `connect`, `disconnect`, `status`, `send_frame`, `receive_frame`).
+- **Honest 802.11 Simulation (`SimulatedWiFi`)**: Acknowledged hypervisor behavior (VMware/QEMU bridge WiFi as virtual Ethernet). Implemented complete 802.11 state machine (`Disconnected` -> `Scanning` -> `Authenticating` -> `Associated` -> `Connected`), WPA2-PSK 4-way handshake simulation (ANonce, SNonce/MIC, PTK/GTK), and frame bridging to e1000.
+- **Wireless CLI Utilities (`src/shell.rs`)**:
+  - `iwconfig`: Displays `wlan0` ESSID, Mode, Frequency, BSSID, Bit Rate, Tx-Power, Link Quality, Signal Level.
+  - `iwlist [iface] scan`: Active 802.11 scanning across 2.4 GHz and 5 GHz channels reporting Cell info, BSSIDs, frequencies, and encryption types.
+  - `wifi <scan|connect|disconnect|status>`: High-level connection management.
+  - `wpa_supplicant -s <ssid> [-p <pass>]`: Linux-compatible connection syntax.
+  - Updated `ifconfig`: Now lists both `eth0` and `wlan0` interfaces.
+- **Integration Test (`tests/wifi.rs`)**: Created 5 comprehensive integration tests validating AP properties, 24-byte 802.11 MAC headers, scanning, state machine with valid and invalid passphrases, and bridged frame transmission.
+- **Test Suite**: Full test suite now passes **31/31 tests** cleanly across 6 test binaries.
 
 ---
 
-## Verification Evidence (Step 6)
+## Verification Evidence (Step 7)
 
 ```
 cargo test            → Running unittests src\lib.rs (11 tests) [all ok]
@@ -69,7 +81,8 @@ cargo test            → Running unittests src\lib.rs (11 tests) [all ok]
                       → Running tests\heap_allocation.rs (5 tests) [all ok]
                       → Running tests\networking.rs (4 tests) [all ok]
                       → Running tests\stack_overflow.rs (1 test) [all ok]
-                      test result: ok. 26 passed; 0 failed; 0 ignored; finished in 0.00s
+                      → Running tests\wifi.rs (5 tests) [all ok]
+                      test result: ok. 31 passed; 0 failed; 0 ignored; finished in 0.00s
 
 VMDK / QEMU Boot Log  → Serial port online.
                         ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
@@ -78,7 +91,8 @@ VMDK / QEMU Boot Log  → Serial port online.
                         e1000: rx_desc_phys=PhysAddr(0x1a000), tx_desc_phys=PhysAddr(0x1a200)
                         e1000 initialized! MAC: 52:54:00:12:34:56
                         LAN Networking & smoltcp stack initialized (IP: 10.0.2.15/24, GW: 10.0.2.2).
-                        BOOT_TIME_MS=147.455 (TSC ticks=367809277, freq=2494 MHz)
+                        [wlan0] 802.11 Wireless Subsystem initialized (MAC: 52:54:00:12:34:56, bridged via e1000)
+                        BOOT_TIME_MS=108.725 (TSC ticks=271760507, freq=2499 MHz)
                         micro_os:/> 
 ```
 
@@ -88,17 +102,17 @@ VMDK / QEMU Boot Log  → Serial port online.
 
 | Decision | Chosen | Reason |
 |----------|--------|--------|
+| WiFi Architecture | `WiFiDriver` Trait + `SimulatedWiFi` | Real chipsets (MT7921) cannot be accessed directly in VMs; trait enables future bare-metal drivers while simulation bridges e1000 |
+| MAC Address Generation | Locally-administered bit (`base_mac[0] \| 0x02`) | Guarantees non-conflicting unique MAC address for virtual `wlan0` interface |
+| Handshake Logic | Realistic WPA2 4-Way Handshake | Validates passphrases, models ANonce/SNonce/MIC and PTK/GTK crypto installation |
 | Network Controller | Intel e1000 (82540EM / 82545EM) | Universally supported in both QEMU (`0x100E`) and VMware Workstation (`0x100F`) |
 | Network Protocol Stack | `smoltcp 0.12` | Zero-allocation, event-driven bare-metal TCP/IP stack with medium-ethernet support |
-| Descriptor Allocation | Static page-aligned `DMA_RING` buffer | Predictable physical address mapping without heap fragmentation |
-| Address Translation | `mapper.translate_addr()` via `Translate` trait | Translates kernel virtual buffer pointers to hardware physical bus addresses |
-| Primary VMware Format | VMDK (`qemu-img convert`) | Bootloader 0.9 is a native hard disk MBR bootloader; VMDK boots reliably in VMware and QEMU |
-| VMware IDE Mapping | `ide0:0` (OS) + `ide0:1` (MicroFS Data) | Matches QEMU Primary Master / Primary Slave architecture |
 
 ---
 
-## Next Step: Step 7 — WiFi Layer Simulation
+## Next Step: Step 8 — Laptop Hardware Compatibility (UEFI, NVMe, ACPI)
 
-- Define `WirelessDevice` / `WiFiDriver` trait abstracting 802.11 frame encapsulation, SSID scanning, association states, and WPA2-PSK handshake simulation.
-- Implement honest simulation layer that bridges wireless frame emulation through our working e1000 Ethernet LAN driver (since virtual machines do not expose raw 802.11 PHY hardware to guests).
-- Expose shell commands: `iwconfig`, `iwlist scan`, `wpa_supplicant`.
+- Target real laptop hardware profile from `laptop_hardware.txt` (Intel i5-1335U, NVMe SSD, MediaTek MT7921, ACPI).
+- Implement NVMe driver foundations (Admin Submission / Completion Queues, Controller Configuration).
+- Parse ACPI tables (RSDP, XSDT, FADT power off / reset, MADT interrupt routing).
+- Establish dual BIOS / UEFI boot paths.

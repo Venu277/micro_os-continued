@@ -1,4 +1,6 @@
+use alloc::borrow::ToOwned;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use crate::fs::vfs::VFS;
@@ -100,6 +102,10 @@ pub fn execute_command(input: &str) {
         "df" => cmd_df(),
         "mkfs" => cmd_mkfs(),
         "ifconfig" => cmd_ifconfig(),
+        "iwconfig" => cmd_iwconfig(),
+        "iwlist" => cmd_iwlist(&args),
+        "wifi" => cmd_wifi(&args),
+        "wpa_supplicant" => cmd_wpa_supplicant(&args),
         "ping" => cmd_ping(&args),
         "curl" | "http-get" => cmd_curl(&args),
         "reboot" => cmd_reboot(),
@@ -134,7 +140,11 @@ fn cmd_help() {
     println!("  rm <name>            - Remove a file or empty directory");
     println!("  df                   - Show disk storage usage");
     println!("  mkfs                 - Format disk with clean MicroFS filesystem");
-    println!("  ifconfig             - Display network interface and IP details");
+    println!("  ifconfig             - Display network interfaces (eth0, wlan0) status");
+    println!("  iwconfig             - Display 802.11 wireless link parameters");
+    println!("  iwlist [iface] scan  - Scan for nearby 802.11 wireless networks");
+    println!("  wifi <cmd> [args...] - Manage WiFi (scan, connect, disconnect, status)");
+    println!("  wpa_supplicant -s .. - Connect to WPA2/WPA3 network with 4-way handshake");
     println!("  ping <ip>            - Send ICMP echo requests to target host");
     println!("  curl <ip> [path]     - Perform simple HTTP 1.0 request");
     println!("  reboot               - Restart the machine");
@@ -413,15 +423,271 @@ pub fn parse_ipv4(s: &str) -> Option<smoltcp::wire::Ipv4Address> {
     }
 }
 
+fn format_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        alloc::format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        alloc::format!("{}.{} KiB", bytes / 1024, (bytes % 1024) / 100)
+    } else {
+        alloc::format!("{}.{} MiB", bytes / (1024 * 1024), (bytes % (1024 * 1024)) / 100_000)
+    }
+}
+
 fn cmd_ifconfig() {
+    let mut printed = false;
     let net_lock = crate::net::NETWORK.lock();
     if let Some(ref stack) = *net_lock {
         let info = stack.ifconfig();
         println!("{}", info);
         serial_println!("{}", info);
+        printed = true;
+    }
+
+    let wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+    if let Some(ref adapter) = *wifi_lock {
+        use crate::net::wifi::WiFiDriver;
+        let status = adapter.status();
+        let mac = adapter.mac_address();
+        let mac_str = alloc::format!(
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        );
+        let status_str = alloc::format!(
+            "{:<9} Link encap:Ethernet (802.11)  HWaddr {}\n          WiFi State:{}  Tx-Power=20 dBm\n          RX packets:{} errors:0 dropped:0 overruns:0 frame:0\n          TX packets:{} errors:0 dropped:0 overruns:0 carrier:0\n          RX bytes:{} ({})  TX bytes:{} ({})",
+            status.interface,
+            mac_str,
+            status.state,
+            status.rx_packets,
+            status.tx_packets,
+            status.rx_bytes,
+            format_bytes(status.rx_bytes),
+            status.tx_bytes,
+            format_bytes(status.tx_bytes)
+        );
+        println!("{}", status_str);
+        serial_println!("{}", status_str);
+        printed = true;
+    }
+
+    if !printed {
+        println!("ifconfig: No network interfaces initialized.");
+        serial_println!("ifconfig: No network interfaces initialized.");
+    }
+}
+
+fn cmd_iwconfig() {
+    let wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+    if let Some(ref adapter) = *wifi_lock {
+        use crate::net::wifi::WiFiDriver;
+        let status = adapter.status();
+        let essid_str = match &status.ssid {
+            Some(s) => alloc::format!("\"{}\"", s),
+            None => "off/any".to_owned(),
+        };
+        let bssid_str = match &status.bssid {
+            Some(b) => alloc::format!("{}", b),
+            None => "Not-Associated".to_owned(),
+        };
+        let freq_ghz_major = status.frequency_mhz / 1000;
+        let freq_ghz_minor = status.frequency_mhz % 1000;
+
+        let out = alloc::format!(
+            "{:<9} IEEE 802.11  ESSID:{}\n          Mode:Managed  Frequency:{}.{:03} GHz  Access Point: {}\n          Bit Rate={} Mb/s   Tx-Power={} dBm\n          Retry short limit:7   RTS thr:off   Fragment thr:off\n          Power Management:on\n          Link Quality={}/{}  Signal level={} dBm\n          Rx invalid nwid:0  Rx invalid crypt:0  Rx invalid frag:0\n          Tx excessive retries:0  Invalid misc:0   Missed beacon:0",
+            status.interface,
+            essid_str,
+            freq_ghz_major,
+            freq_ghz_minor,
+            bssid_str,
+            status.bitrate_mbps,
+            status.tx_power_dbm,
+            status.link_quality.0,
+            status.link_quality.1,
+            status.rssi
+        );
+        println!("{}", out);
+        serial_println!("{}", out);
     } else {
-        println!("ifconfig: No network interface initialized.");
-        serial_println!("ifconfig: No network interface initialized.");
+        println!("iwconfig: No wireless extensions.");
+        serial_println!("iwconfig: No wireless extensions.");
+    }
+}
+
+fn cmd_iwlist(args: &[&str]) {
+    let mut wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+    if let Some(ref mut adapter) = *wifi_lock {
+        use crate::net::wifi::WiFiDriver;
+        let is_scan = args.iter().any(|&a| a == "scan" || a == "scanning");
+        if !is_scan && !args.is_empty() {
+            println!("Usage: iwlist [interface] scan");
+            return;
+        }
+
+        println!("wlan0     Scan completed :");
+        serial_println!("wlan0     Scan completed :");
+        let aps = adapter.scan();
+        for (i, ap) in aps.iter().enumerate() {
+            let freq_major = ap.frequency_mhz() / 1000;
+            let freq_minor = ap.frequency_mhz() % 1000;
+            let quality = ap.link_quality();
+            let key_str = match ap.auth {
+                crate::net::wifi::WiFiAuthType::Open => "off (Open)",
+                crate::net::wifi::WiFiAuthType::Wpa2Psk => "on (WPA2-PSK)",
+                crate::net::wifi::WiFiAuthType::Wpa3Sae => "on (WPA3-SAE)",
+            };
+
+            let entry = alloc::format!(
+                "          Cell {:02} - Address: {}\n                    Channel:{}\n                    Frequency:{}.{:03} GHz\n                    Quality={}/{}  Signal level={} dBm\n                    Encryption key:{}\n                    ESSID:\"{}\"\n                    Bit Rates:{} Mb/s",
+                i + 1,
+                ap.bssid,
+                ap.channel,
+                freq_major,
+                freq_minor,
+                quality.0,
+                quality.1,
+                ap.rssi,
+                key_str,
+                ap.ssid,
+                ap.bitrate_mbps
+            );
+            println!("{}", entry);
+            serial_println!("{}", entry);
+        }
+    } else {
+        println!("iwlist: No wireless extensions.");
+        serial_println!("iwlist: No wireless extensions.");
+    }
+}
+
+fn cmd_wifi(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: wifi <scan|connect|disconnect|status> [args...]");
+        println!("  wifi scan                    - Scan for nearby wireless networks");
+        println!("  wifi connect <ssid> [pass]   - Connect and run 802.11 4-way handshake");
+        println!("  wifi disconnect              - Disconnect from current network");
+        println!("  wifi status                  - Display wireless link status");
+        return;
+    }
+
+    match args[0] {
+        "scan" => cmd_iwlist(&["scan"]),
+        "connect" => {
+            if args.len() < 2 {
+                println!("Usage: wifi connect <ssid> [passphrase]");
+                return;
+            }
+            let ssid = args[1];
+            let pass = if args.len() > 2 { Some(args[2]) } else { None };
+
+            println!("Connecting to WiFi network '{}'...", ssid);
+            serial_println!("wifi: Connecting to WiFi network '{}'...", ssid);
+
+            let mut wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+            if let Some(ref mut adapter) = *wifi_lock {
+                use crate::net::wifi::WiFiDriver;
+                match adapter.connect(ssid, pass) {
+                    Ok(()) => {
+                        println!("Successfully associated and authenticated with '{}'!", ssid);
+                        serial_println!("wifi: Successfully connected to '{}'", ssid);
+                    }
+                    Err(err) => {
+                        println!("Failed to connect to '{}': {}", ssid, err);
+                        serial_println!("wifi error: Failed to connect to '{}': {}", ssid, err);
+                    }
+                }
+            } else {
+                println!("wifi: No wireless adapter available.");
+            }
+        }
+        "disconnect" => {
+            let mut wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+            if let Some(ref mut adapter) = *wifi_lock {
+                use crate::net::wifi::WiFiDriver;
+                match adapter.disconnect() {
+                    Ok(()) => {
+                        println!("wlan0: Disconnected from network.");
+                        serial_println!("wifi: Disconnected from network.");
+                    }
+                    Err(err) => {
+                        println!("wifi error: {}", err);
+                    }
+                }
+            } else {
+                println!("wifi: No wireless adapter available.");
+            }
+        }
+        "status" => {
+            let wifi_lock = crate::net::wifi::WIFI_ADAPTER.lock();
+            if let Some(ref adapter) = *wifi_lock {
+                use crate::net::wifi::WiFiDriver;
+                let status = adapter.status();
+                println!("Wireless Interface: {}", status.interface);
+                println!("State:              {}", status.state);
+                if let Some(ssid) = &status.ssid {
+                    println!("SSID:               {}", ssid);
+                }
+                if let Some(bssid) = &status.bssid {
+                    println!("BSSID:              {}", bssid);
+                }
+                if status.channel > 0 {
+                    println!("Channel:            {} ({} MHz)", status.channel, status.frequency_mhz);
+                    println!("Signal Level:       {} dBm (Quality: {}/{})", status.rssi, status.link_quality.0, status.link_quality.1);
+                    println!("Bitrate:            {} Mb/s", status.bitrate_mbps);
+                }
+                println!("Packets:            Tx: {}, Rx: {}", status.tx_packets, status.rx_packets);
+                println!("Bytes:              Tx: {}, Rx: {}", status.tx_bytes, status.rx_bytes);
+            } else {
+                println!("wifi: No wireless adapter available.");
+            }
+        }
+        unknown => {
+            println!("wifi: unknown subcommand '{}'. Use scan, connect, disconnect, or status.", unknown);
+        }
+    }
+}
+
+fn cmd_wpa_supplicant(args: &[&str]) {
+    let mut ssid = None;
+    let mut pass = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i] {
+            "-s" | "--ssid" => {
+                if i + 1 < args.len() {
+                    ssid = Some(args[i + 1]);
+                    i += 1;
+                }
+            }
+            "-p" | "--passphrase" | "-k" | "--key" => {
+                if i + 1 < args.len() {
+                    pass = Some(args[i + 1]);
+                    i += 1;
+                }
+            }
+            "-i" | "--interface" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                }
+            }
+            _ => {
+                if ssid.is_none() {
+                    ssid = Some(args[i]);
+                } else if pass.is_none() {
+                    pass = Some(args[i]);
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if let Some(target_ssid) = ssid {
+        let connect_args = if let Some(p) = pass {
+            vec!["connect", target_ssid, p]
+        } else {
+            vec!["connect", target_ssid]
+        };
+        cmd_wifi(&connect_args);
+    } else {
+        println!("Usage: wpa_supplicant -s <ssid> [-p <passphrase>] [-i <interface>]");
     }
 }
 

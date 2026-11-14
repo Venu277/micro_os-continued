@@ -57,3 +57,7 @@ harness = false
 [[test]]
 name = "networking"
 harness = false
+
+[[test]]
+name = "wifi"
+harness = false

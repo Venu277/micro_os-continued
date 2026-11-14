@@ -22,7 +22,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let tsc_start: u64 = unsafe { core::arch::x86_64::_rdtsc() };
 
     println!("==================================================");
-    println!("   MicroOS v0.6 - LAN Networking & smoltcp Stack");
+    println!("   MicroOS v0.7 - LAN & 802.11 Wireless Networking");
     println!("==================================================");
     println!("Kernel booted successfully!");
     micro_os::serial_println!("Serial port online.");
