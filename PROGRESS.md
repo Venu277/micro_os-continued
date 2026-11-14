@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 1 — Robust Interrupts ✅
+## Current Step: Step 2 — Memory Management ✅
 
 **Date:** 2026-11-14
 
@@ -8,53 +8,50 @@
 
 ## What Is Done
 
-### Pre-existing (verified in Step 0)
-- Rust kernel, x86_64, BIOS boot via `bootloader = "0.9"` + `bootimage 0.10.3`
-- Pinned toolchain: `nightly-2025-06-01` (rust-src, llvm-tools-preview)
-- Custom target `x86_64-micro_os.json`: 64-bit, softfloat, lld linker, panic=abort
-- bootloader 0.9.35 target JSON hand-patched (pointer-width strings + rustc-abi)
-- VGA `println!` macro, serial `serial_println!` macro
-- Library/binary split: `src/lib.rs` + `src/main.rs`
-- Custom test framework with `isa-debug-exit` (exit code 33 = success)
+### Step 0: Baseline & Hygiene ✅
+- Verified toolchain, custom target, QEMU runner, and fixed duplicate `_start` bug.
+- Established documentation (`README.md`, `PROGRESS.md`, `BOOT_TIMES.md`, `docs/STEP_00_baseline.md`).
+- Target laptop hardware profiled in `laptop_hardware.txt`.
 
-### Added in Step 0
-- Fixed duplicate `#[cfg(test)] _start` in `src/lib.rs`
-- Base documentation: `README.md`, `PROGRESS.md`, `BOOT_TIMES.md`, `docs/STEP_00_baseline.md`
-- Laptop hardware specifications stored in `laptop_hardware.txt`
+### Step 1: Robust Interrupts ✅
+- GDT & TSS with 20 KiB dedicated IST stack for double faults.
+- Remapped 8259 PIC to vectors 32 and 40.
+- Timer IRQ0 tick accounting and keyboard IRQ1 with wait-free, lock-free SPSC scancode ring buffer.
+- Dynamic PIT Channel 2 TSC frequency calibration.
+- Verified with integration test `stack_overflow.rs`.
 
-### Added in Step 1
-- **GDT & TSS with IST**: `src/gdt.rs` sets up Global Descriptor Table with Kernel Code Segment and Task State Segment. Allocates a dedicated 20 KiB stack at IST index 0 for double faults.
-- **PIC 8259 Remapping**: `src/interrupts.rs` remaps master PIC to vector 32 and slave PIC to vector 40.
-- **Timer & Keyboard Handlers**: Handled IRQ0 (vector 32) for timer tick accounting and IRQ1 (vector 33) for keyboard.
-- **Lock-Free SPSC Scancode Queue**: Keyboard ISR pushes scancodes into an atomic ring buffer without locking, eliminating interrupt-context deadlocks. Scancodes are decoded in the main task loop.
-- **PIT-Based TSC Calibration**: Uses PIT Channel 2 one-shot measurement over 10 ms to accurately calibrate CPU TSC clock frequency (~2505 MHz in QEMU).
-- **Stack Overflow Integration Test**: `tests/stack_overflow.rs` proves that double fault catches stack overflow via IST stack without triple-faulting.
-- **Documentation**: `docs/STEP_01_robust_interrupts.md` with detailed architecture and diagrams.
+### Step 2: Memory Management ✅
+- **Physical Memory Mapping**: Enabled bootloader's `map_physical_memory` feature; mapped complete physical memory space.
+- **Type-Safe Entry Point**: Migrated from `_start` to `bootloader::entry_point!(kernel_main)` accepting `&'static BootInfo`.
+- **OffsetPageTable & Paging**: Initialized active level 4 page table access at `Cr3::read()`.
+- **BootInfoFrameAllocator**: Discovered free RAM regions from `boot_info.memory_map` and implemented `FrameAllocator<Size4KiB>`.
+- **Kernel Heap & Linked-List Allocator**: Allocated and mapped 100 KiB virtual address space at `0x_4444_4444_0000`. Built custom `LinkedListAllocator` with in-memory free node tracking and memory reuse.
+- **Enabled `alloc` Crate**: Added `"alloc"` to `build-std` in `.cargo/config.toml`, enabling `Box`, `Vec`, and `String`.
+- **Integration Tests**: Added `tests/heap_allocation.rs` testing simple allocations, large vectors, many boxes, long-lived allocations, and memory reuse over 10,000 cycles.
 
 ---
 
-## Verification Evidence (Step 1)
+## Verification Evidence (Step 2)
 
 ```
-cargo build  →  Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.33s (0 warnings)
-cargo test   →  Running 4 unit tests
-                micro_os::interrupts::test_breakpoint_exception...  [ok]
-                micro_os::trivial_assertion...                       [ok]
-                micro_os::vga_buffer::test_println_many...           [ok]
-                micro_os::vga_buffer::test_println_simple...         [ok]
-                Running integration test
-                stack_overflow::stack_overflow...                    [ok]
-cargo run    →  BOOT_TIME_MS=41.896 (TSC ticks=104952366, freq=2505 MHz)
-                Kernel ready. Interrupts OK.
-                Keyboard interactive typing echo verified via QEMU monitor.
+cargo build  →  Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.02s (0 warnings)
+cargo test   →  12 tests total across 3 test targets:
+                - src/lib.rs (6 tests: breakpoint, box, vec, trivial, println_many, println_simple) -> [ok]
+                - tests/heap_allocation.rs (5 tests: simple, large_vec, many_boxes, long_lived, reuse) -> [ok]
+                - tests/stack_overflow.rs (1 test: double fault IST switch) -> [ok]
+cargo run    →  BOOT_TIME_MS=50.801 (TSC ticks=126221737, freq=2484 MHz)
+                Heap test: Box = 42, Vec len = 10
+                MicroOS Dynamic Heap Allocator Online!
+                Kernel ready. Interrupts & Heap OK.
+                Keyboard echo verified (typed "rust").
 ```
 
 ---
 
 ## Known Issues / Warnings
 
-1. **Memory Allocations Still Static**: Step 2 will implement dynamic memory management (`alloc`, `Box`, `Vec`, heap).
-2. **OneDrive File Sync**: Keep OneDrive sync paused when running Git commands to avoid temporary lock contention.
+1. **Fixed Heap Size**: Heap size is currently fixed at 100 KiB. Dynamic heap extension can be added if workloads grow beyond 100 KiB.
+2. **OneDrive File Sync**: Keep OneDrive sync paused when performing Git push commands to avoid temporary `.git/index.lock` contention.
 
 ---
 
@@ -62,18 +59,19 @@ cargo run    →  BOOT_TIME_MS=41.896 (TSC ticks=104952366, freq=2505 MHz)
 
 | Decision | Chosen | Reason |
 |----------|--------|--------|
-| Double-fault Stack | 20 KiB dedicated IST stack | Prevents triple faults on kernel stack overflow |
-| PIC Vectors | 32 (PIC1) and 40 (PIC2) | Avoids CPU exception range 0–31 |
-| Scancode Handling | Lock-free SPSC Atomic Queue | Prevents mutex deadlocks in interrupt handlers |
-| TSC Calibration | PIT Channel 2 (10 ms) | Provides real-world millisecond timing without external dependencies |
+| Entry Point | `bootloader::entry_point!` | Guaranteed type safety, stack alignment, and prevents UB |
+| Paging | `OffsetPageTable` | Safe navigation of active level 4 tables via bootloader physical memory mapping |
+| Physical Allocator | `BootInfoFrameAllocator` | Allocates exclusively from BIOS `Usable` memory regions |
+| Heap Allocator | `LinkedListAllocator` (custom) | Self-contained, zero-dependency, reclaims memory on drop without heap fragmentation crashes |
+| Heap Location | `0x_4444_4444_0000` (100 KiB) | Distinct high-memory address space, leaves low memory free |
 
 ---
 
-## Next Step: Step 2 — Memory Management
+## Next Step: Step 3 — Tasks, Keyboard Input & Interactive Shell
 
-- Enable bootloader's `map_physical_memory` feature.
-- Change entry point to `entry_point!(kernel_main)` using `bootloader::BootInfo`.
-- Implement frame allocator (`BootInfoFrameAllocator`) from bootloader memory map.
-- Map virtual heap pages to physical frames.
-- Implement an allocator (linked-list or fixed-size-block) and enable Rust `alloc` crate.
-- Tests: heap allocations, `Box`, `Vec`, reallocation, and memory reuse.
+- Implement cooperative multitasking with an async/await executor (`Task`, `SimpleExecutor`, `Executor`).
+- Implement async keyboard task reading scancodes from the lock-free queue.
+- Implement an interactive shell with prompt (`micro_os> `) and line editing (backspace, enter).
+- Shell commands: `help`, `clear`, `echo`, `uptime`, `meminfo`, `reboot`, `shutdown`, `bootime`.
+- System clock combining PIT timer ticks and CMOS RTC for wall-clock time.
+- Boot target: shell prompt ready.

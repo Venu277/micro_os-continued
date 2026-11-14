@@ -4,28 +4,45 @@
 #![test_runner(micro_os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+extern crate alloc;
+
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 use micro_os::println;
+use x86_64::VirtAddr;
 
-#[no_mangle]
-pub extern "C" fn _start() -> ! {
+entry_point!(kernel_main);
+
+fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 1. Read TSC as early as possible
     let tsc_start: u64 = unsafe { core::arch::x86_64::_rdtsc() };
 
     println!("==============================");
-    println!("   MicroOS v0.3 - written in Rust");
+    println!("   MicroOS v0.4 - written in Rust");
     println!("==============================");
     println!("Kernel booted successfully!");
     micro_os::serial_println!("Serial port works too!");
 
-    // 2. Kernel initialization (GDT, TSS, IDT, PIC, Interrupts enabled)
+    // 2. Initialize CPU structures (GDT, TSS, IDT, PIC, Interrupts enabled)
     micro_os::init();
 
-    // 3. Read TSC after init()
+    // 3. Initialize Memory Management (Paging, Frame Allocator, Kernel Heap)
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    let mut mapper = unsafe { micro_os::memory::init(phys_mem_offset) };
+    let mut frame_allocator =
+        unsafe { micro_os::memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+
+    micro_os::allocator::init_heap(&mut mapper, &mut frame_allocator)
+        .expect("Kernel heap initialization failed");
+
+    // 4. Measure elapsed TSC ticks up to heap readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 
-    // 4. Calibrate TSC frequency using PIT Channel 2
+    // 5. Calibrate TSC frequency against PIT Channel 2
     let tsc_freq_hz = micro_os::interrupts::calibrate_tsc();
     let boot_time_ms = elapsed_ticks.saturating_mul(1000) / tsc_freq_hz;
     let boot_time_us = (elapsed_ticks.saturating_mul(1_000_000) / tsc_freq_hz) % 1000;
@@ -44,12 +61,25 @@ pub extern "C" fn _start() -> ! {
         boot_time_us,
         tsc_freq_hz / 1_000_000
     );
-    println!("GDT, TSS, IDT, PIC initialized. Interrupts enabled.");
+    println!("GDT, TSS, IDT, PIC, Paging, and Heap (100 KiB) initialized.");
 
-    // 5. Test breakpoint exception
+    // 6. Demonstrate dynamic heap allocations (Box, Vec, String)
+    let test_box = Box::new(42);
+    let mut test_vec = Vec::new();
+    for i in 0..10 {
+        test_vec.push(i * 2);
+    }
+    let test_string = String::from("MicroOS Dynamic Heap Allocator Online!");
+
+    println!("Heap test: Box = {}, Vec len = {}", *test_box, test_vec.len());
+    println!("{}", test_string);
+    micro_os::serial_println!("Heap test: Box = {}, Vec len = {}", *test_box, test_vec.len());
+    micro_os::serial_println!("{}", test_string);
+
+    // 7. Test breakpoint exception
     x86_64::instructions::interrupts::int3();
     println!("Breakpoint handled — CPU did not crash!");
-    micro_os::serial_println!("Kernel ready. Interrupts OK.");
+    micro_os::serial_println!("Kernel ready. Interrupts & Heap OK.");
 
     #[cfg(test)]
     test_main();

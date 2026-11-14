@@ -14,8 +14,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 |------|------|--------|
 | Step 0 | Baseline, hygiene, TSC boot timer | ✅ Done |
 | Step 1 | GDT/TSS, PIC remap, timer & keyboard IRQs, IST | ✅ Done |
-| Step 2 | Paging, frame allocator, heap, `alloc` | 🔲 Next |
-| Step 3 | Async executor, shell, system clock | 🔲 Planned |
+| Step 2 | Paging, frame allocator, heap, `alloc` | ✅ Done |
+| Step 3 | Async executor, shell, system clock | 🔲 Next |
 | Step 4 | Storage, block driver, file system | 🔲 Planned |
 | Step 5 | ISO packaging, VMware boot | 🔲 Planned |
 | Step 6 | LAN networking (e1000, smoltcp) | 🔲 Planned |
@@ -25,7 +25,7 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 10 | Package store `snap` | 🔲 Planned |
 | Step 11 | Final integration and presentation | 🔲 Planned |
 
-See [PROGRESS.md](PROGRESS.md) for the current detailed status and [BOOT_TIMES.md](BOOT_TIMES.md) for timing progression.
+See [PROGRESS.md](PROGRESS.md) for detailed milestone notes and [BOOT_TIMES.md](BOOT_TIMES.md) for timing progression.
 
 ---
 
@@ -58,19 +58,24 @@ with Linux, but are **not** Linux-compatible:
 
 ```
 micro_os-main/
-├── .cargo/              # Cargo build config (custom target, build-std)
+├── .cargo/              # Cargo build config (custom target, build-std = core, compiler_builtins, alloc)
 ├── src/
 │   ├── lib.rs           # Library root: test framework, init, hlt_loop
-│   ├── main.rs          # Kernel entry point (_start)
+│   ├── main.rs          # Kernel entry point (entry_point! macro)
 │   ├── gdt.rs           # GDT and TSS with IST double-fault stack
 │   ├── interrupts.rs    # IDT, PIC remap, timer, keyboard ISR, lock-free queue, PIT calibration
+│   ├── memory.rs        # Paging via OffsetPageTable and BootInfoFrameAllocator
+│   ├── allocator.rs     # Kernel heap initialization and global allocator registration
+│   │   └── linked_list.rs # Linked-list allocator with memory reclamation
 │   ├── vga_buffer.rs    # VGA text-mode driver and println! macro
 │   └── serial.rs        # UART serial port driver and serial_println! macro
 ├── tests/
-│   └── stack_overflow.rs # Integration test: double-fault stack switching via IST
+│   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
+│   └── stack_overflow.rs  # Integration test: double-fault stack switching via IST
 ├── docs/                # Per-step documentation
 │   ├── STEP_00_baseline.md
-│   └── STEP_01_robust_interrupts.md
+│   ├── STEP_01_robust_interrupts.md
+│   └── STEP_02_memory_management.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)
@@ -87,7 +92,7 @@ micro_os-main/
 | Tool | Version / Notes |
 |------|----------------|
 | Rust (rustup) | Toolchain pinned to `nightly-2025-06-01` via `rust-toolchain.toml` |
-| `rust-src` component | Required to build `core` for the custom target |
+| `rust-src` component | Required to build `core` and `alloc` for the custom target |
 | `llvm-tools-preview` | Required by `bootimage` to objcopy the kernel binary |
 | `bootimage` | 0.10.3 — install with `cargo install bootimage --version 0.10.3` |
 | QEMU | Any recent x86_64 build — on Windows add to PATH: `C:\Program Files\qemu` |
@@ -100,24 +105,10 @@ micro_os-main/
 # From the project root on Windows PowerShell:
 $env:PATH += ";C:\Program Files\qemu"
 
-cargo build          # Compile the kernel
-cargo test           # Run all unit tests and the stack_overflow integration test
+cargo build          # Compile the kernel with alloc enabled
+cargo test           # Run all 12 tests across unit and integration suites
 cargo run            # Boot in QEMU (serial output visible in terminal)
 ```
-
----
-
-## Toolchain Patch Notes
-
-**bootloader 0.9.35 target file hand-patch** (required; re-apply if Cargo clears
-the registry):
-
-File: `%USERPROFILE%\.cargo\registry\src\...\bootloader-0.9.35\x86_64-bootloader.json`
-
-Changes made:
-1. `"target-pointer-width"` changed from integer `64` to string `"64"`
-2. `"target-c-int-width"` changed from integer `32` to string `"32"`
-3. Added `"rustc-abi": "x86-softfloat"`
 
 ---
 
