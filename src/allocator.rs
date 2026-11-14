@@ -75,6 +75,14 @@ pub fn init_heap(
     Ok(())
 }
 
+/// Returns (used_bytes, free_bytes, total_bytes) of the kernel heap.
+pub fn memory_usage() -> (usize, usize, usize) {
+    let free = ALLOCATOR.lock().free_memory();
+    let total = HEAP_SIZE;
+    let used = total.saturating_sub(free);
+    (used, free, total)
+}
+
 /// Align the given address `addr` upwards to alignment `align`.
 ///
 /// Requires that `align` is a power of two.

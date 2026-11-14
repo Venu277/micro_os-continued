@@ -15,8 +15,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 0 | Baseline, hygiene, TSC boot timer | ✅ Done |
 | Step 1 | GDT/TSS, PIC remap, timer & keyboard IRQs, IST | ✅ Done |
 | Step 2 | Paging, frame allocator, heap, `alloc` | ✅ Done |
-| Step 3 | Async executor, shell, system clock | 🔲 Next |
-| Step 4 | Storage, block driver, file system | 🔲 Planned |
+| Step 3 | Async executor, shell, system clock | ✅ Done |
+| Step 4 | Storage, block driver, file system | 🔲 Next |
 | Step 5 | ISO packaging, VMware boot | 🔲 Planned |
 | Step 6 | LAN networking (e1000, smoltcp) | 🔲 Planned |
 | Step 7 | WiFi layer (honest simulation & driver trait) | 🔲 Planned |
@@ -67,7 +67,13 @@ micro_os-main/
 │   ├── memory.rs        # Paging via OffsetPageTable and BootInfoFrameAllocator
 │   ├── allocator.rs     # Kernel heap initialization and global allocator registration
 │   │   └── linked_list.rs # Linked-list allocator with memory reclamation
-│   ├── vga_buffer.rs    # VGA text-mode driver and println! macro
+│   ├── rtc.rs           # CMOS RTC real-time clock and PIT system uptime
+│   ├── shell.rs         # Interactive CLI shell (line editing, command parser, built-in commands)
+│   ├── task/            # Cooperative asynchronous multitasking
+│   │   ├── mod.rs       # Task and TaskId abstractions
+│   │   ├── executor.rs  # Async Executor with idle sleep (enable_and_hlt)
+│   │   └── keyboard.rs  # ScancodeStream with hardware waker bridge
+│   ├── vga_buffer.rs    # VGA text-mode driver with clear_screen and backspace
 │   └── serial.rs        # UART serial port driver and serial_println! macro
 ├── tests/
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
@@ -75,7 +81,8 @@ micro_os-main/
 ├── docs/                # Per-step documentation
 │   ├── STEP_00_baseline.md
 │   ├── STEP_01_robust_interrupts.md
-│   └── STEP_02_memory_management.md
+│   ├── STEP_02_memory_management.md
+│   └── STEP_03_tasks_and_shell.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)
@@ -105,9 +112,9 @@ micro_os-main/
 # From the project root on Windows PowerShell:
 $env:PATH += ";C:\Program Files\qemu"
 
-cargo build          # Compile the kernel with alloc enabled
-cargo test           # Run all 12 tests across unit and integration suites
-cargo run            # Boot in QEMU (serial output visible in terminal)
+cargo build          # Compile the kernel
+cargo test           # Run all 14 unit and integration tests
+cargo run            # Boot into interactive shell in QEMU
 ```
 
 ---

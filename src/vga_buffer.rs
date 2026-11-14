@@ -91,6 +91,25 @@ impl Writer {
             self.buffer.chars[row][col].write(blank);
         }
     }
+
+    pub fn clear_screen(&mut self) {
+        for row in 0..BUFFER_HEIGHT {
+            self.clear_row(row);
+        }
+        self.column_position = 0;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.column_position > 0 {
+            self.column_position -= 1;
+            let row = BUFFER_HEIGHT - 1;
+            let col = self.column_position;
+            self.buffer.chars[row][col].write(ScreenChar {
+                ascii_character: b' ',
+                color_code: self.color_code,
+            });
+        }
+    }
 }
 
 impl fmt::Write for Writer {
@@ -117,6 +136,18 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+}
+
+pub fn clear_screen() {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        WRITER.lock().clear_screen();
+    });
+}
+
+pub fn backspace() {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        WRITER.lock().backspace();
+    });
 }
 
 #[doc(hidden)]

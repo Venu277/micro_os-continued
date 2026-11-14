@@ -126,4 +126,15 @@ impl LinkedListAllocator {
         let (size, _) = Self::size_align(layout);
         self.add_free_region(ptr as usize, size);
     }
+
+    /// Calculate total amount of free memory currently available in the free list.
+    pub fn free_memory(&self) -> usize {
+        let mut total = 0;
+        let mut current = &self.head;
+        while let Some(ref region) = current.next {
+            total += region.size;
+            current = region;
+        }
+        total
+    }
 }

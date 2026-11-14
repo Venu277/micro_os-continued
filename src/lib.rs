@@ -16,7 +16,10 @@ pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
+pub mod rtc;
 pub mod serial;
+pub mod shell;
+pub mod task;
 pub mod vga_buffer;
 
 /// Initialize kernel CPU structures: GDT, IDT, PIC, and enable interrupts.
@@ -86,7 +89,8 @@ fn test_kernel_main(boot_info: &'static BootInfo) -> ! {
     use x86_64::VirtAddr;
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    let mut frame_allocator =
+        unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
 
     test_main();

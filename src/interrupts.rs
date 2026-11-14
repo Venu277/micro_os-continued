@@ -223,6 +223,9 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     // Push into lock-free queue; non-blocking, deadlock-free
     let _ = SCANCODE_QUEUE.push(scancode);
 
+    // Wake async keyboard executor task if sleeping
+    crate::task::keyboard::wake_keyboard_task();
+
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
