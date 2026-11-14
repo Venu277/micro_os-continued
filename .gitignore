@@ -1,8 +1,10 @@
 target/
+build/
 *.iso
 *.vmdk
 *.img
 *.bin.bak
+*.log
 disk.img
 # Never commit secrets
 *.pem

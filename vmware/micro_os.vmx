@@ -1,0 +1,49 @@
+.encoding = "windows-1252"
+config.version = "8"
+virtualHW.version = "16"
+vmci0.present = "TRUE"
+displayName = "MicroOS"
+guestOS = "other-64"
+nvram = "micro_os.nvram"
+virtualHW.productCompatibility = "hosted"
+
+# CPU and Memory
+numvcpus = "1"
+cpuid.coresPerSocket = "1"
+memsize = "512"
+
+# Storage: Primary IDE Master (OS Boot Disk)
+ide0:0.present = "TRUE"
+ide0:0.fileName = "..\build\micro_os.vmdk"
+ide0:0.deviceType = "disk"
+ide0:0.mode = "persistent"
+
+# Storage: Primary IDE Slave (4 MiB MicroFS Data Disk)
+ide0:1.present = "TRUE"
+ide0:1.fileName = "..\build\data.vmdk"
+ide0:1.deviceType = "disk"
+ide0:1.mode = "persistent"
+
+# Serial Port (captured to serial.log)
+serial0.present = "TRUE"
+serial0.fileType = "file"
+serial0.fileName = "serial.log"
+serial0.autodetect = "FALSE"
+
+# Network Adapter: Intel e1000 (Ready for Phase 6)
+ethernet0.present = "TRUE"
+ethernet0.connectionType = "nat"
+ethernet0.virtualDev = "e1000"
+ethernet0.wakeOnPcktRcv = "FALSE"
+ethernet0.addressType = "generated"
+
+# Display and Motherboard Peripherals
+pciBridge0.present = "TRUE"
+sound.present = "FALSE"
+floppy0.present = "FALSE"
+usb.present = "FALSE"
+tools.syncTime = "FALSE"
+powerType.powerOff = "soft"
+powerType.powerOn = "soft"
+powerType.suspend = "soft"
+powerType.reset = "soft"

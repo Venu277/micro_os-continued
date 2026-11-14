@@ -17,8 +17,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 2 | Paging, frame allocator, heap, `alloc` | ✅ Done |
 | Step 3 | Async executor, shell, system clock | ✅ Done |
 | Step 4 | Storage, block driver, file system | ✅ Done |
-| Step 5 | ISO packaging, VMware boot | 🔲 Next |
-| Step 6 | LAN networking (e1000, smoltcp) | 🔲 Planned |
+| Step 5 | ISO packaging, VMware boot | ✅ Done |
+| Step 6 | LAN networking (e1000, smoltcp) | 🔲 Next |
 | Step 7 | WiFi layer (honest simulation & driver trait) | 🔲 Planned |
 | Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | 🔲 Planned |
 | Step 9 | Package manager `apt` / `aptitude` | 🔲 Planned |
@@ -83,6 +83,13 @@ micro_os-main/
 │   │   └── keyboard.rs  # ScancodeStream with hardware waker bridge
 │   ├── vga_buffer.rs    # VGA text-mode driver with clear_screen and backspace
 │   └── serial.rs        # UART serial port driver and serial_println! macro
+├── scripts/             # Automated packaging and boot scripts
+│   ├── package.ps1      # PowerShell packaging pipeline (bootimage -> VMDK + ISO)
+│   ├── package.sh       # Bash / Linux / WSL packaging pipeline
+│   └── run_vmdk.ps1     # Launcher to boot packaged VMDKs in QEMU
+├── vmware/              # VMware Workstation configuration
+│   ├── micro_os.vmx     # Virtual machine configuration (IDE disks, serial, e1000)
+│   └── README.md        # Step-by-step instructions for VMware Workstation
 ├── tests/
 │   ├── filesystem.rs      # Integration test: format, create/read, dir trees, large indirect files, reboot persistence
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
@@ -92,7 +99,8 @@ micro_os-main/
 │   ├── STEP_01_robust_interrupts.md
 │   ├── STEP_02_memory_management.md
 │   ├── STEP_03_tasks_and_shell.md
-│   └── STEP_04_storage_and_filesystem.md
+│   ├── STEP_04_storage_and_filesystem.md
+│   └── STEP_05_iso_and_vmware.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)

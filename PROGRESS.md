@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 4 — Storage & On-Disk File System (MicroFS) ✅
+## Current Step: Step 5 — Packaging: Source Code to Bootable ISO & VMware ✅
 
 **Date:** 2026-11-14
 
@@ -45,21 +45,28 @@
 - **Reboot Persistence Verified**: Created and verified integration test `tests/filesystem.rs` proving persistent storage across unmount/remount sessions.
 - **Test Suite**: 22/22 tests passing cleanly across all targets.
 
+### Step 5: Packaging: Bootable ISO & VMware ✅
+- **Packaging Pipeline (`scripts/package.ps1` & `scripts/package.sh`)**: End-to-end automated compilation, bootimage creation, and virtual disk generation.
+- **VMware VMDK Generation**: Converted `bootimage-micro_os.bin` and `disk.img` into `micro_os.vmdk` and `data.vmdk` using `qemu-img convert`.
+- **El Torito ISO Generation**: Produced `build/micro_os.iso` via WSL `xorriso`. Documented why VMDK hard disk format is the primary, reliable boot path for VMware and QEMU.
+- **VMware Virtual Machine Specification (`vmware/micro_os.vmx`)**: Created production configuration for VMware Workstation/Player with Primary IDE Master OS disk, Primary IDE Slave data disk, serial port debugging, and Intel e1000 NIC.
+- **Verification**: Verified booting from `micro_os.vmdk` and `data.vmdk` in QEMU, reaching the interactive shell in 76.471 ms.
+
 ---
 
-## Verification Evidence (Step 4)
+## Verification Evidence (Step 5)
 
 ```
-cargo build  →  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.38s (0 warnings)
-cargo test   →  22 tests passing across 4 test targets:
-                - src/lib.rs (11 tests: microfs_structures, superblock_magic, breakpoint, rtc_bcd, command_parsing, storage_command_tokens, box, vec, trivial, println_many, println_simple) -> [ok]
-                - tests/filesystem.rs (5 tests: format, create_and_read, directory_tree, large_file_indirect, reboot_persistence) -> [ok]
-                - tests/heap_allocation.rs (5 tests: simple, large_vec, many_boxes, long_lived, reuse) -> [ok]
-                - tests/stack_overflow.rs (1 test: double fault IST switch) -> [ok]
-cargo run    →  ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
-                MicroFS superblock mounted successfully.
-                BOOT_TIME_MS=90.428 (TSC ticks=226183661, freq=2501 MHz)
-                micro_os:/> 
+.\scripts\package.ps1 → Packaging complete! Artifacts:
+                       - build/micro_os.vmdk (983,040 bytes)
+                       - build/data.vmdk     (131,072 bytes)
+                       - build/micro_os.iso  (1,275,904 bytes)
+.\scripts\run_vmdk.ps1 → Serial port online.
+                        ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
+                        MicroFS superblock mounted successfully.
+                        BOOT_TIME_MS=76.471 (TSC ticks=191944699, freq=2510 MHz)
+                        micro_os:/> 
+cargo test            → 22 passed; 0 failed; 0 ignored; finished in 0.00s
 ```
 
 ---
@@ -68,17 +75,17 @@ cargo run    →  ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
 
 | Decision | Chosen | Reason |
 |----------|--------|--------|
-| Disk Interface | ATA PIO LBA28 | Universal compatibility across QEMU, VMware Workstation, and VirtualBox IDE controllers |
-| Interrupt Handling | Polled PIO + nIEN=1 + IRQ 14/15 IDT stubs | Eliminates race conditions and prevents unhandled interrupt cascade |
-| Filesystem Layout | MicroFS (ext2-inspired) | Clean layout: Superblock, bitmaps, inode table, directory entries, direct & single indirect blocks |
-| Inode Size | Exactly 64 bytes with compile-time assertions | Prevents struct alignment issues; exactly 8 inodes per 512-byte sector |
-| VFS Layer | Global `spin::Mutex<Vfs>` | Clean abstraction decoupling storage hardware from shell commands |
+| Primary VMware Format | VMDK (`qemu-img convert`) | Bootloader 0.9 is a native hard disk MBR bootloader; VMDK boots reliably in VMware and QEMU |
+| Secondary Format | El Torito ISO (`xorriso`) | Generated via WSL xorriso; honest documentation on optical vs hard disk boot behavior |
+| VMware IDE Mapping | `ide0:0` (OS) + `ide0:1` (MicroFS Data) | Matches QEMU Primary Master / Primary Slave architecture |
+| Packaging Automation | PowerShell (`package.ps1`) + Bash (`package.sh`) | Native Windows experience with cross-platform script for Linux/WSL |
 
 ---
 
-## Next Step: Step 5 — Packaging: Source Code to Bootable ISO, and VMware
+## Next Step: Step 6 — LAN Networking (e1000 & smoltcp)
 
-- Script bootimage creation and hard disk attachment.
-- Build bootable ISO using xorriso / El Torito hard disk emulation.
-- Generate VMDK disk image via `qemu-img` for VMware Workstation.
-- Test boot in QEMU with `-cdrom` and configure VMware Workstation VM.
+- Scan PCI bus for Intel 82540EM (e1000) Ethernet controller (`0x8086:0x100E`).
+- Implement e1000 driver with DMA transmit/receive descriptor rings.
+- Integrate `smoltcp` async network stack.
+- Implement DHCP / static IPv4 configuration and ICMP ping handler.
+- Expose shell commands: `ifconfig`, `ping`.

@@ -19,7 +19,8 @@
 | Step 1 | GDT/TSS, PIC remap, Timer & Keyboard IRQs | 41.896 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2505 MHz) | 2026-11-14 |
 | Step 2 | Paging, Frame Allocator, Kernel Heap, `alloc` | 50.801 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2484 MHz) | 2026-11-14 |
 | Step 3 | Async Executor, Shell Prompt, CMOS RTC, Clock | 54.341 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2491 MHz) | 2026-11-14 |
-| **Step 4** | **Storage, ATA PIO Driver, MicroFS on-disk filesystem, VFS** | **90.428 ms** | **~1.5 s** | — | **Dynamic PIT Ch2 calibrated TSC (@ 2501 MHz)** | 2026-11-14 |
+| Step 4 | Storage, ATA PIO Driver, MicroFS on-disk filesystem, VFS | 90.428 ms | ~1.5 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2501 MHz) | 2026-11-14 |
+| **Step 5** | **VMDK Packaging & VMware Config (Booted from VMDK)** | **76.471 ms** | **~1.5 s** | Ready | **Dynamic PIT Ch2 calibrated TSC (@ 2510 MHz)** | 2026-11-14 |
 
 ---
 
