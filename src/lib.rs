@@ -7,18 +7,22 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use core::panic::PanicInfo;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};
 
 pub mod allocator;
+pub mod fs;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
+pub mod pci;
 pub mod rtc;
 pub mod serial;
 pub mod shell;
+pub mod storage;
 pub mod task;
 pub mod vga_buffer;
 
@@ -28,6 +32,47 @@ pub fn init() {
     interrupts::init_idt();
     unsafe { interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
+}
+
+/// Probe ATA disks and mount the MicroFS filesystem.
+pub fn init_storage() {
+    use storage::ata::{AtaBus, AtaDrive, AtaDriveSelect};
+    use storage::BlockDevice;
+
+    let device: Box<dyn BlockDevice> = match AtaDrive::new(AtaBus::Primary, AtaDriveSelect::Slave) {
+        Ok(drive) => {
+            serial_println!(
+                "ATA Primary Slave hard drive detected ({} sectors, ~{} MiB)",
+                drive.sector_count(),
+                (drive.sector_count() * 512) / (1024 * 1024)
+            );
+            Box::new(drive)
+        }
+        Err(err) => {
+            serial_println!("ATA drive probe note: {}. Using 64 KiB RAM disk fallback.", err);
+            Box::new(storage::RamDisk::new(64 * 1024))
+        }
+    };
+
+    let mut vfs = fs::VFS.lock();
+    vfs.set_device(device);
+
+    if let Some(dev) = vfs.dev_mut() {
+        if fs::MicroFs::read_superblock(dev).is_err() {
+            serial_println!("Unformatted disk detected. Formatting with MicroFS...");
+            if let Err(e) = micro_fs_format_dev(dev) {
+                serial_println!("Disk format error: {}", e);
+            } else {
+                serial_println!("MicroFS successfully formatted.");
+            }
+        } else {
+            serial_println!("MicroFS superblock mounted successfully.");
+        }
+    }
+}
+
+fn micro_fs_format_dev(dev: &mut dyn storage::BlockDevice) -> Result<(), &'static str> {
+    fs::MicroFs::format(dev)
 }
 
 pub fn hlt_loop() -> ! {
@@ -93,6 +138,8 @@ fn test_kernel_main(boot_info: &'static BootInfo) -> ! {
         unsafe { memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
 
+    init_storage();
+
     test_main();
     hlt_loop();
 }
@@ -110,7 +157,6 @@ fn trivial_assertion() {
 
 #[test_case]
 fn test_box_allocation() {
-    use alloc::boxed::Box;
     let heap_val = Box::new(42);
     assert_eq!(*heap_val, 42);
 }

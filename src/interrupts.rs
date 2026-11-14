@@ -23,6 +23,8 @@ pub static PICS: spin::Mutex<ChainedPics> =
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,        // IRQ 0 → vector 32
     Keyboard = PIC_1_OFFSET + 1, // IRQ 1 → vector 33
+    PrimaryAta = PIC_1_OFFSET + 14,   // IRQ 14 → vector 46
+    SecondaryAta = PIC_1_OFFSET + 15, // IRQ 15 → vector 47
 }
 
 impl InterruptIndex {
@@ -166,10 +168,13 @@ lazy_static! {
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
         idt.page_fault.set_handler_fn(page_fault_handler);
+        idt.general_protection_fault.set_handler_fn(general_protection_fault_handler);
 
         // Hardware interrupts (PIC)
         idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+        idt[InterruptIndex::PrimaryAta.as_usize()].set_handler_fn(ata_primary_interrupt_handler);
+        idt[InterruptIndex::SecondaryAta.as_usize()].set_handler_fn(ata_secondary_interrupt_handler);
 
         idt
     };
@@ -206,6 +211,16 @@ extern "x86-interrupt" fn page_fault_handler(
     crate::hlt_loop();
 }
 
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    panic!(
+        "EXCEPTION: GENERAL PROTECTION FAULT (code {:#x})\n{:#?}",
+        error_code, stack_frame
+    );
+}
+
 // ---------- Hardware Interrupt Handlers ----------
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
@@ -229,6 +244,20 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+    }
+}
+
+extern "x86-interrupt" fn ata_primary_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    unsafe {
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::PrimaryAta.as_u8());
+    }
+}
+
+extern "x86-interrupt" fn ata_secondary_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    unsafe {
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::SecondaryAta.as_u8());
     }
 }
 

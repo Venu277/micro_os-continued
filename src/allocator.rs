@@ -12,8 +12,8 @@ use x86_64::{
 
 /// Start address of the kernel heap.
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-/// Size of the kernel heap: 100 KiB.
-pub const HEAP_SIZE: usize = 100 * 1024;
+/// Size of the kernel heap: 256 KiB.
+pub const HEAP_SIZE: usize = 256 * 1024;
 
 /// A wrapper around spin::Mutex to permit trait implementations.
 pub struct Locked<A> {

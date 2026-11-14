@@ -16,8 +16,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 1 | GDT/TSS, PIC remap, timer & keyboard IRQs, IST | ✅ Done |
 | Step 2 | Paging, frame allocator, heap, `alloc` | ✅ Done |
 | Step 3 | Async executor, shell, system clock | ✅ Done |
-| Step 4 | Storage, block driver, file system | 🔲 Next |
-| Step 5 | ISO packaging, VMware boot | 🔲 Planned |
+| Step 4 | Storage, block driver, file system | ✅ Done |
+| Step 5 | ISO packaging, VMware boot | 🔲 Next |
 | Step 6 | LAN networking (e1000, smoltcp) | 🔲 Planned |
 | Step 7 | WiFi layer (honest simulation & driver trait) | 🔲 Planned |
 | Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | 🔲 Planned |
@@ -60,15 +60,23 @@ with Linux, but are **not** Linux-compatible:
 micro_os-main/
 ├── .cargo/              # Cargo build config (custom target, build-std = core, compiler_builtins, alloc)
 ├── src/
-│   ├── lib.rs           # Library root: test framework, init, hlt_loop
+│   ├── lib.rs           # Library root: test framework, init, init_storage, hlt_loop
 │   ├── main.rs          # Kernel entry point (entry_point! macro)
 │   ├── gdt.rs           # GDT and TSS with IST double-fault stack
-│   ├── interrupts.rs    # IDT, PIC remap, timer, keyboard ISR, lock-free queue, PIT calibration
+│   ├── interrupts.rs    # IDT, PIC remap, timer, keyboard ISR, lock-free queue, PIT calibration, ATA IRQ stubs
 │   ├── memory.rs        # Paging via OffsetPageTable and BootInfoFrameAllocator
-│   ├── allocator.rs     # Kernel heap initialization and global allocator registration
+│   ├── allocator.rs     # Kernel heap initialization (256 KiB) and global allocator registration
 │   │   └── linked_list.rs # Linked-list allocator with memory reclamation
+│   ├── pci.rs           # PCI bus enumeration and device identification
+│   ├── storage/         # Storage driver subsystem
+│   │   ├── mod.rs       # BlockDevice trait and RamDisk
+│   │   └── ata.rs       # ATA PIO LBA28 hard disk controller driver
+│   ├── fs/              # Filesystem subsystem
+│   │   ├── mod.rs       # Module re-exports
+│   │   ├── microfs.rs   # Ext2-style on-disk filesystem (Superblock, Bitmaps, Inodes, DirEntries)
+│   │   └── vfs.rs       # Virtual File System layer (mount, path resolution, cwd, file operations)
 │   ├── rtc.rs           # CMOS RTC real-time clock and PIT system uptime
-│   ├── shell.rs         # Interactive CLI shell (line editing, command parser, built-in commands)
+│   ├── shell.rs         # Interactive CLI shell (storage commands: ls, cd, pwd, mkdir, touch, cat, write, rm, df, mkfs, lspci)
 │   ├── task/            # Cooperative asynchronous multitasking
 │   │   ├── mod.rs       # Task and TaskId abstractions
 │   │   ├── executor.rs  # Async Executor with idle sleep (enable_and_hlt)
@@ -76,13 +84,15 @@ micro_os-main/
 │   ├── vga_buffer.rs    # VGA text-mode driver with clear_screen and backspace
 │   └── serial.rs        # UART serial port driver and serial_println! macro
 ├── tests/
+│   ├── filesystem.rs      # Integration test: format, create/read, dir trees, large indirect files, reboot persistence
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
 │   └── stack_overflow.rs  # Integration test: double-fault stack switching via IST
 ├── docs/                # Per-step documentation
 │   ├── STEP_00_baseline.md
 │   ├── STEP_01_robust_interrupts.md
 │   ├── STEP_02_memory_management.md
-│   └── STEP_03_tasks_and_shell.md
+│   ├── STEP_03_tasks_and_shell.md
+│   └── STEP_04_storage_and_filesystem.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)

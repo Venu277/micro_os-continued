@@ -39,7 +39,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     micro_os::allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("Kernel heap initialization failed");
 
-    // 4. Measure elapsed TSC ticks up to shell prompt readiness
+    // 4. Initialize Storage & File System (ATA probe, MicroFS mount)
+    micro_os::init_storage();
+
+    // 5. Measure elapsed TSC ticks up to shell prompt readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 
