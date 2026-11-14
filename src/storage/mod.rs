@@ -1,4 +1,5 @@
 pub mod ata;
+pub mod nvme;
 
 use alloc::vec;
 use alloc::vec::Vec;

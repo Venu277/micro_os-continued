@@ -61,3 +61,7 @@ harness = false
 [[test]]
 name = "wifi"
 harness = false
+
+[[test]]
+name = "hardware"
+harness = false

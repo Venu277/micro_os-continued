@@ -7,7 +7,6 @@ use crate::fs::vfs::VFS;
 use crate::task::keyboard::ScancodeStream;
 use crate::{print, println, serial_print, serial_println};
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
-use x86_64::instructions::port::Port;
 
 pub static BOOT_TIME_MS: AtomicU64 = AtomicU64::new(0);
 pub static BOOT_TIME_US: AtomicU64 = AtomicU64::new(0);
@@ -101,6 +100,9 @@ pub fn execute_command(input: &str) {
         "rm" => cmd_rm(&args),
         "df" => cmd_df(),
         "mkfs" => cmd_mkfs(),
+        "lscpu" => cmd_lscpu(),
+        "acpi" => cmd_acpi(),
+        "nvme" => cmd_nvme(&args),
         "ifconfig" => cmd_ifconfig(),
         "iwconfig" => cmd_iwconfig(),
         "iwlist" => cmd_iwlist(&args),
@@ -140,6 +142,9 @@ fn cmd_help() {
     println!("  rm <name>            - Remove a file or empty directory");
     println!("  df                   - Show disk storage usage");
     println!("  mkfs                 - Format disk with clean MicroFS filesystem");
+    println!("  lscpu                - Display CPU architecture, model, and flags");
+    println!("  acpi                 - Display ACPI tables (RSDP, FADT, MADT, APIC)");
+    println!("  nvme [cmd]           - NVMe storage controller status and identify");
     println!("  ifconfig             - Display network interfaces (eth0, wlan0) status");
     println!("  iwconfig             - Display 802.11 wireless link parameters");
     println!("  iwlist [iface] scan  - Scan for nearby 802.11 wireless networks");
@@ -769,37 +774,143 @@ fn cmd_curl(args: &[&str]) {
     }
 }
 
+fn cmd_lscpu() {
+    let cpu = crate::cpu::get_cpu_info();
+    println!("Architecture:                    x86_64");
+    println!("CPU op-mode(s):                  32-bit, 64-bit");
+    println!("Byte Order:                      Little Endian");
+    println!(
+        "Address sizes:                   {} bits physical, {} bits virtual",
+        cpu.phys_addr_bits, cpu.virt_addr_bits
+    );
+    println!("CPU(s):                          {}", cpu.logical_cores);
+    println!("Vendor ID:                       {}", cpu.vendor);
+    println!("Model name:                      {}", cpu.brand);
+    println!("CPU family:                      {}", cpu.family);
+    println!("Model:                           {}", cpu.model);
+    println!("Stepping:                        {}", cpu.stepping);
+    let freq_mhz = BOOT_TIME_FREQ_MHZ.load(Ordering::Relaxed);
+    println!("CPU MHz:                         {}", freq_mhz);
+
+    let mut flags_line = String::new();
+    for f in &cpu.features {
+        flags_line.push_str(f);
+        flags_line.push(' ');
+    }
+    println!("Flags:                           {}", flags_line.trim_end());
+
+    serial_println!(
+        "lscpu: Model='{}', Cores={}, Freq={} MHz",
+        cpu.brand,
+        cpu.logical_cores,
+        freq_mhz
+    );
+}
+
+fn cmd_acpi() {
+    let acpi_lock = crate::acpi::ACPI_INFO.lock();
+    if let Some(ref info) = *acpi_lock {
+        println!("ACPI Root System Description Pointer (RSDP):");
+        println!("  Status:             Found (Phys: {:#x})", info.rsdp_phys);
+        println!(
+            "  Revision:           {} (ACPI {}.0+)",
+            info.revision,
+            if info.revision >= 2 { "2" } else { "1" }
+        );
+        println!("  OEM ID:             {}", info.oem_id);
+        println!("ACPI Fixed Description Table (FADT):");
+        println!("  PM1a Control Block: {:#x}", info.pm1a_cnt_blk);
+        println!(
+            "  Hardware Reset:     {}",
+            if info.reset_supported {
+                "Supported"
+            } else {
+                "Not Available"
+            }
+        );
+        if info.reset_supported {
+            println!(
+                "  Reset Register:     Port {:#x} (Value {:#x})",
+                info.reset_port, info.reset_val
+            );
+        }
+        println!("ACPI Multiple APIC Description Table (MADT):");
+        println!("  Local APIC Base:    {:#x}", info.local_apic_addr);
+        println!("  I/O APIC Base:      {:#x}", info.io_apic_addr);
+        println!("  CPU Cores:          {}", info.num_cpu_cores);
+        print!("  APIC Core IDs:      [");
+        for (i, id) in info.cpu_apic_ids.iter().enumerate() {
+            if i > 0 {
+                print!(", ");
+            }
+            print!("{}", id);
+        }
+        println!("]");
+        serial_println!(
+            "acpi: OEM='{}', Cores={}, LocalAPIC={:#x}",
+            info.oem_id,
+            info.num_cpu_cores,
+            info.local_apic_addr
+        );
+    } else {
+        println!("acpi: No ACPI tables detected.");
+        serial_println!("acpi: No ACPI tables detected.");
+    }
+}
+
+fn cmd_nvme(args: &[&str]) {
+    let nvme_lock = crate::storage::nvme::NVME_CONTROLLER.lock();
+    if let Some(ref dev) = *nvme_lock {
+        let subcmd = args.first().copied().unwrap_or("status");
+        match subcmd {
+            "status" | "info" => {
+                println!("{}", dev.info);
+                serial_println!("{}", dev.info);
+            }
+            "identify" | "id-ctrl" => {
+                let info = &dev.info;
+                println!("NVMe Controller Identify Data:");
+                println!("  Model Number (MN):       {}", info.model);
+                println!("  Serial Number (SN):      {}", info.serial);
+                println!("  Firmware Revision (FR):  {}", info.firmware);
+                println!(
+                    "  NVMe Version:            {}.{}",
+                    info.version_major, info.version_minor
+                );
+                println!("  Total Sectors (LBA):     {}", info.total_sectors);
+                println!("  Logical Block Size:      {} bytes", info.sector_size);
+                let cap_gb = (info.total_sectors * info.sector_size as u64) / (1024 * 1024 * 1024);
+                println!("  Total Capacity:          {} GB", cap_gb);
+                println!(
+                    "  Controller Type:         {}",
+                    if info.is_hardware {
+                        "PCIe Hardware Controller"
+                    } else {
+                        "NVMe PCIe Gen4 Controller (Laptop Profile)"
+                    }
+                );
+                serial_println!("nvme identify: MN='{}', SN='{}'", info.model, info.serial);
+            }
+            _ => {
+                println!("Usage: nvme <status|identify>");
+            }
+        }
+    } else {
+        println!("nvme: No NVMe controller registered.");
+        serial_println!("nvme: No NVMe controller registered.");
+    }
+}
+
 fn cmd_reboot() -> ! {
     println!("Rebooting MicroOS...");
-    serial_println!("Rebooting MicroOS via 8042 reset pulse...");
-
-    unsafe {
-        let mut port_64 = Port::<u8>::new(0x64);
-        port_64.write(0xFE);
-
-        // Fallback: Triple fault
-        x86_64::instructions::tables::lidt(&x86_64::structures::DescriptorTablePointer {
-            limit: 0,
-            base: x86_64::VirtAddr::new(0),
-        });
-        x86_64::instructions::interrupts::int3();
-    }
-
-    crate::hlt_loop();
+    serial_println!("Rebooting MicroOS via ACPI / 8042 reset...");
+    crate::acpi::acpi_reboot();
 }
 
 fn cmd_shutdown() -> ! {
     println!("Shutting down MicroOS. Goodbye!");
-    serial_println!("Shutting down MicroOS via ACPI/QEMU ports...");
-
-    unsafe {
-        Port::<u16>::new(0x604).write(0x2000);
-        Port::<u16>::new(0x4004).write(0x2000);
-        Port::<u16>::new(0xB004).write(0x2000);
-        Port::<u32>::new(0xf4).write(0x10);
-    }
-
-    crate::hlt_loop();
+    serial_println!("Shutting down MicroOS via ACPI power-off...");
+    crate::acpi::acpi_poweroff();
 }
 
 #[cfg(test)]

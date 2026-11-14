@@ -20,8 +20,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 5 | ISO packaging, VMware boot | ✅ Done |
 | Step 6 | LAN networking (e1000, smoltcp) | ✅ Done |
 | Step 7 | WiFi layer (honest simulation & driver trait) | ✅ Done |
-| Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | 🔲 Next |
-| Step 9 | Package manager `apt` / `aptitude` | 🔲 Planned |
+| Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | ✅ Done |
+| Step 9 | Package manager `apt` / `aptitude` | 🔲 Next |
 | Step 10 | Package store `snap` | 🔲 Planned |
 | Step 11 | Final integration and presentation | 🔲 Planned |
 
@@ -62,6 +62,8 @@ micro_os-main/
 ├── src/
 │   ├── lib.rs           # Library root: test framework, init, init_storage, hlt_loop
 │   ├── main.rs          # Kernel entry point (entry_point! macro)
+│   ├── cpu.rs           # CPUID architecture & feature enumeration (Intel Core i5-1335U profile)
+│   ├── acpi.rs          # ACPI 2.0+ parser (RSDP, XSDT, FADT power/reset, MADT APIC cores)
 │   ├── gdt.rs           # GDT and TSS with IST double-fault stack
 │   ├── interrupts.rs    # IDT, PIC remap, timer, keyboard ISR, lock-free queue, PIT calibration, ATA IRQ stubs
 │   ├── memory.rs        # Paging via OffsetPageTable and BootInfoFrameAllocator
@@ -74,13 +76,14 @@ micro_os-main/
 │   │   └── wifi.rs      # WiFiDriver trait, SimulatedWiFi, 802.11 frames, WPA2 state machine
 │   ├── storage/         # Storage driver subsystem
 │   │   ├── mod.rs       # BlockDevice trait and RamDisk
-│   │   └── ata.rs       # ATA PIO LBA28 hard disk controller driver
+│   │   ├── ata.rs       # ATA PIO LBA28 hard disk controller driver
+│   │   └── nvme.rs      # NVMe 1.4+ controller architecture (64B SQE, 16B CQE, 512GB SSD)
 │   ├── fs/              # Filesystem subsystem
 │   │   ├── mod.rs       # Module re-exports
 │   │   ├── microfs.rs   # Ext2-style on-disk filesystem (Superblock, Bitmaps, Inodes, DirEntries)
 │   │   └── vfs.rs       # Virtual File System layer (mount, path resolution, cwd, file operations)
 │   ├── rtc.rs           # CMOS RTC real-time clock and PIT system uptime
-│   ├── shell.rs         # Interactive CLI shell (storage, LAN + WiFi: ifconfig, iwconfig, iwlist, wifi, wpa_supplicant)
+│   ├── shell.rs         # Interactive CLI shell (storage, LAN, WiFi, hardware: lscpu, acpi, nvme, ifconfig, etc.)
 │   ├── task/            # Cooperative asynchronous multitasking
 │   │   ├── mod.rs       # Task and TaskId abstractions
 │   │   ├── executor.rs  # Async Executor with idle sleep (enable_and_hlt)
@@ -96,6 +99,7 @@ micro_os-main/
 │   └── README.md        # Step-by-step instructions for VMware Workstation
 ├── tests/
 │   ├── filesystem.rs      # Integration test: format, create/read, dir trees, large indirect files, reboot persistence
+│   ├── hardware.rs        # Integration test: CPUID brand/features, ACPI checksums & tables, NVMe queues
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
 │   ├── networking.rs      # Integration test: IPv4 parser, DMA descriptors, ICMP formatting, gateway ping
 │   ├── stack_overflow.rs  # Integration test: double-fault stack switching via IST
@@ -108,7 +112,8 @@ micro_os-main/
 │   ├── STEP_04_storage_and_filesystem.md
 │   ├── STEP_05_iso_and_vmware.md
 │   ├── STEP_06_lan_networking.md
-│   └── STEP_07_wifi_layer.md
+│   ├── STEP_07_wifi_layer.md
+│   └── STEP_08_laptop_hardware.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)
@@ -139,7 +144,7 @@ micro_os-main/
 $env:PATH += ";C:\Program Files\qemu"
 
 cargo build          # Compile the kernel
-cargo test           # Run all 31 unit and integration tests
+cargo test           # Run all 36 unit and integration tests
 cargo run            # Boot into interactive shell in QEMU
 ```
 

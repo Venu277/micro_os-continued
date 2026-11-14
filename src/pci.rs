@@ -129,3 +129,9 @@ pub fn find_e1000() -> Option<PciDevice> {
             )
     })
 }
+
+pub fn find_nvme() -> Option<PciDevice> {
+    enumerate_pci().into_iter().find(|dev| {
+        dev.class_id == 0x01 && dev.subclass_id == 0x08 && dev.prog_if == 0x02
+    })
+}

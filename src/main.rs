@@ -22,7 +22,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let tsc_start: u64 = unsafe { core::arch::x86_64::_rdtsc() };
 
     println!("==================================================");
-    println!("   MicroOS v0.7 - LAN & 802.11 Wireless Networking");
+    println!("   MicroOS v0.8 - Laptop Platform, ACPI & NVMe");
     println!("==================================================");
     println!("Kernel booted successfully!");
     micro_os::serial_println!("Serial port online.");
@@ -39,13 +39,17 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     micro_os::allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("Kernel heap initialization failed");
 
-    // 4. Initialize Storage & File System (ATA probe, MicroFS mount)
-    micro_os::init_storage();
+    // 4. Initialize ACPI Subsystem (RSDP, XSDT, FADT, MADT)
+    micro_os::acpi::init_acpi(phys_mem_offset);
 
-    // 5. Initialize LAN Networking (e1000 driver & smoltcp stack)
+    // 5. Initialize Storage & File System (ATA probe, NVMe probe, MicroFS mount)
+    micro_os::init_storage();
+    micro_os::storage::nvme::init_nvme(&mut mapper, &mut frame_allocator);
+
+    // 6. Initialize LAN & 802.11 Wireless Networking (e1000 driver & smoltcp stack)
     micro_os::net::init_network(&mut mapper, &mut frame_allocator);
 
-    // 6. Measure elapsed TSC ticks up to shell prompt readiness
+    // 7. Measure elapsed TSC ticks up to shell prompt readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 
