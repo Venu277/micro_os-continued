@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 0 — Baseline & Hygiene ✅
+## Current Step: Step 1 — Robust Interrupts ✅
 
 **Date:** 2026-11-14
 
@@ -16,53 +16,45 @@
 - VGA `println!` macro, serial `serial_println!` macro
 - Library/binary split: `src/lib.rs` + `src/main.rs`
 - Custom test framework with `isa-debug-exit` (exit code 33 = success)
-- IDT with breakpoint handler and page fault handler (`src/interrupts.rs`)
 
 ### Added in Step 0
-- Fixed duplicate `#[cfg(test)] _start` in `src/lib.rs` (compilation error)
-- `README.md` — full project overview including honest scope
-- `PROGRESS.md` — this file
-- `BOOT_TIMES.md` — boot time measurement table
-- `docs/` directory created
-- `docs/STEP_00_baseline.md` — step documentation
-- `.gitignore` updated: `target/`, `*.iso`, `*.vmdk`, `*.img`, `disk.img`
-- TSC-based boot timer added to `src/main.rs` (prints `BOOT_TIME_MS=<n>` on serial)
-- Git remote `updated` added pointing to `micro-os` branch
+- Fixed duplicate `#[cfg(test)] _start` in `src/lib.rs`
+- Base documentation: `README.md`, `PROGRESS.md`, `BOOT_TIMES.md`, `docs/STEP_00_baseline.md`
+- Laptop hardware specifications stored in `laptop_hardware.txt`
+
+### Added in Step 1
+- **GDT & TSS with IST**: `src/gdt.rs` sets up Global Descriptor Table with Kernel Code Segment and Task State Segment. Allocates a dedicated 20 KiB stack at IST index 0 for double faults.
+- **PIC 8259 Remapping**: `src/interrupts.rs` remaps master PIC to vector 32 and slave PIC to vector 40.
+- **Timer & Keyboard Handlers**: Handled IRQ0 (vector 32) for timer tick accounting and IRQ1 (vector 33) for keyboard.
+- **Lock-Free SPSC Scancode Queue**: Keyboard ISR pushes scancodes into an atomic ring buffer without locking, eliminating interrupt-context deadlocks. Scancodes are decoded in the main task loop.
+- **PIT-Based TSC Calibration**: Uses PIT Channel 2 one-shot measurement over 10 ms to accurately calibrate CPU TSC clock frequency (~2505 MHz in QEMU).
+- **Stack Overflow Integration Test**: `tests/stack_overflow.rs` proves that double fault catches stack overflow via IST stack without triple-faulting.
+- **Documentation**: `docs/STEP_01_robust_interrupts.md` with detailed architecture and diagrams.
 
 ---
 
-## Verification Evidence (Step 0)
+## Verification Evidence (Step 1)
 
 ```
-cargo build  →  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.47s
-cargo test   →  Running 4 tests
+cargo build  →  Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.33s (0 warnings)
+cargo test   →  Running 4 unit tests
                 micro_os::interrupts::test_breakpoint_exception...  [ok]
                 micro_os::trivial_assertion...                       [ok]
                 micro_os::vga_buffer::test_println_many...           [ok]
                 micro_os::vga_buffer::test_println_simple...         [ok]
+                Running integration test
+                stack_overflow::stack_overflow...                    [ok]
+cargo run    →  BOOT_TIME_MS=41.896 (TSC ticks=104952366, freq=2505 MHz)
+                Kernel ready. Interrupts OK.
+                Keyboard interactive typing echo verified via QEMU monitor.
 ```
 
 ---
 
 ## Known Issues / Warnings
 
-1. **OneDrive incremental cache:** `warning: hard linking files in the incremental
-   compilation cache failed` — caused by OneDrive locking files. Workaround:
-   build proceeds anyway (falls back to copying). Real fix: move project to
-   `C:\dev\micro_os`. **Recommend but do not force** — ask user first.
-
-2. **TSC calibration:** The TSC boot timer reads the TSC counter at `_start` and
-   again after `init()`. Without PIT/RTC calibration the value is in raw TSC
-   ticks, not milliseconds. Conversion added using a fixed estimate of
-   ~2 GHz (500 ps/tick) — will be properly calibrated in Step 1 when PIT is set up.
-
-3. **No GDT/TSS:** Double-fault will triple-fault the CPU. This is Step 1.
-
-4. **No PIC remap:** Timer and keyboard IRQs still map to CPU exception vectors
-   0x08–0x0F. This is Step 1.
-
-5. **laptop_hardware.txt is missing.** Required for Step 8. The user must provide
-   it before we reach Step 8.
+1. **Memory Allocations Still Static**: Step 2 will implement dynamic memory management (`alloc`, `Box`, `Vec`, heap).
+2. **OneDrive File Sync**: Keep OneDrive sync paused when running Git commands to avoid temporary lock contention.
 
 ---
 
@@ -70,18 +62,18 @@ cargo test   →  Running 4 tests
 
 | Decision | Chosen | Reason |
 |----------|--------|--------|
-| Toolchain pin | nightly-2025-06-01 | Already working; do not change casually |
-| Bootloader | 0.9 (BIOS MBR) | Already integrated; UEFI migration is Step 8 |
-| Allocator | TBD (Step 2) | linked-list or fixed-size-block |
-| Package exec model | TBD (Step 9) | ring-3 ELF loader vs. WASM; await user approval |
-| WiFi driver | Simulated (Step 7) | Real chipset needs bare metal + firmware |
+| Double-fault Stack | 20 KiB dedicated IST stack | Prevents triple faults on kernel stack overflow |
+| PIC Vectors | 32 (PIC1) and 40 (PIC2) | Avoids CPU exception range 0–31 |
+| Scancode Handling | Lock-free SPSC Atomic Queue | Prevents mutex deadlocks in interrupt handlers |
+| TSC Calibration | PIT Channel 2 (10 ms) | Provides real-world millisecond timing without external dependencies |
 
 ---
 
-## Next Step: Step 1 — Robust Interrupts
+## Next Step: Step 2 — Memory Management
 
-- GDT + TSS with separate double-fault stack (IST slot 0)
-- Remap PIC 8259 to offsets 32/40
-- Timer IRQ0 and keyboard IRQ1 handlers with EOI
-- Lock-free scancode queue; process scancodes outside the interrupt handler
-- Tests: breakpoint (existing), double-fault stack-overflow (separate test binary)
+- Enable bootloader's `map_physical_memory` feature.
+- Change entry point to `entry_point!(kernel_main)` using `bootloader::BootInfo`.
+- Implement frame allocator (`BootInfoFrameAllocator`) from bootloader memory map.
+- Map virtual heap pages to physical frames.
+- Implement an allocator (linked-list or fixed-size-block) and enable Rust `alloc` crate.
+- Tests: heap allocations, `Box`, `Vec`, reallocation, and memory reuse.

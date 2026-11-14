@@ -4,10 +4,10 @@
 
 | Field | Description |
 |-------|-------------|
-| **Kernel time (ms)** | From `_start` (TSC read) to `init()` complete. TSC ticks ÷ estimated 2 GHz. Printed on serial as `BOOT_TIME_MS=<n>`. Properly calibrated against PIT in Step 1. |
+| **Kernel time (ms)** | From `_start` to `init()` complete. Measured via `_rdtsc()`, calibrated dynamically against PIT Channel 2 (10 ms one-shot). Printed over serial as `BOOT_TIME_MS=<ms>.<us>`. |
 | **QEMU total (s)** | VM power-on to serial "kernel ready" message. Measured with stopwatch, average of 3 runs. |
 | **VMware total (s)** | Same, measured in VMware Workstation (available from Step 5 onward). |
-| **Method** | How the measurement was taken. |
+| **Method** | Hardware timer calibration & measurement methodology. |
 
 ---
 
@@ -15,19 +15,13 @@
 
 | Step | Component Added | Kernel Init (ms) | QEMU Total (s) | VMware Total (s) | Method | Date |
 |------|----------------|-----------------|----------------|-----------------|--------|------|
-| Step 0 | Baseline (IDT only) | 43.972 ms total* | ~1.5 s | — | TSC raw ticks ÷ 2GHz est.; QEMU serial-to-file capture | 2026-11-14 |
-
-> \* `BOOT_TIME_MS=43.972` as reported by serial output (87,945,765 TSC ticks ÷ 2GHz).
-> This includes the VGA println! output before `init()` — the IDT load itself takes
-> < 0.01 ms. The 44 ms is dominated by BIOS boot + bootloader long-mode switch +
-> first VGA writes. Proper PIT-calibrated frequency used in Step 1.
+| Step 0 | Baseline (IDT only) | 43.972 ms | ~1.5 s | — | TSC ticks ÷ 2GHz est.; QEMU serial capture | 2026-11-14 |
+| Step 1 | GDT/TSS, PIC remap, Timer & Keyboard IRQs | 41.896 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2505 MHz) | 2026-11-14 |
 
 ---
 
 ## Notes
 
-- Kernel boot time will increase as more components are initialized (GDT, PIC,
-  heap, scheduler, drivers). The table tracks this per step.
-- QEMU total includes BIOS POST, bootloader stage 1+2 (long-mode switch), and
-  kernel init. The bootloader itself takes ~0.5–1 s.
-- VMware total is measured from "Power On" click to serial "kernel ready" line.
+- In Step 1, TSC calibration was upgraded from an arbitrary 2 GHz estimate to true hardware-calibrated frequency using PIT Channel 2 over a 10 ms interval (measured frequency: ~2,505 MHz on QEMU x86_64).
+- Kernel initialization at 41.9 ms includes early VGA banner output, GDT loading, Task State Segment (TSS) loading, Interrupt Descriptor Table (IDT) configuration, 8259 PIC initialization, enabling interrupts, and hardware calibration.
+- The entire QEMU cold boot from process spawn to kernel prompt takes ~1.4 seconds.

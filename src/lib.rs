@@ -7,12 +7,17 @@
 
 use core::panic::PanicInfo;
 
+pub mod gdt;
+pub mod interrupts;
 pub mod serial;
 pub mod vga_buffer;
-pub mod interrupts;
 
+/// Initialize the kernel: GDT, IDT, PIC, then enable hardware interrupts.
 pub fn init() {
+    gdt::init();
     interrupts::init_idt();
+    unsafe { interrupts::PICS.lock().initialize() };
+    x86_64::instructions::interrupts::enable();
 }
 
 pub fn hlt_loop() -> ! {
