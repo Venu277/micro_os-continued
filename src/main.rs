@@ -22,7 +22,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let tsc_start: u64 = unsafe { core::arch::x86_64::_rdtsc() };
 
     println!("==================================================");
-    println!("   MicroOS v0.8 - Laptop Platform, ACPI & NVMe");
+    println!("   MicroOS v0.9 - Debian Package Management (apt/dpkg)");
     println!("==================================================");
     println!("Kernel booted successfully!");
     micro_os::serial_println!("Serial port online.");
@@ -49,7 +49,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 6. Initialize LAN & 802.11 Wireless Networking (e1000 driver & smoltcp stack)
     micro_os::net::init_network(&mut mapper, &mut frame_allocator);
 
-    // 7. Measure elapsed TSC ticks up to shell prompt readiness
+    // 7. Initialize Package Management Subsystem (apt / dpkg)
+    micro_os::pkg::init_pkg();
+
+    // 8. Measure elapsed TSC ticks up to shell prompt readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 

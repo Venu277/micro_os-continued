@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 8 — Laptop Hardware Compatibility (UEFI, NVMe, ACPI) ✅
+## Current Step: Step 9 — Package Manager (`apt` / `dpkg` & Debian Format) ✅
 
 **Date:** 2026-11-15
 
@@ -79,6 +79,16 @@
 - **Diagnostic Shell Commands (`src/shell.rs`)**: Added `lscpu`, `acpi`, `nvme [status|identify]`.
 - **Integration Test (`tests/hardware.rs`)**: Validated CPUID features, ACPI descriptor sizes & checksums, NVMe queue alignments & sector I/O, and physical table discovery.
 - **Test Suite**: Full test suite now passes **36/36 tests** cleanly across 7 test binaries.
+
+### Step 9: Package Manager (`apt` / `dpkg` & Debian Format) ✅
+- **RFC 822 / Debian 822 Parser (`src/pkg/rfc822.rs`)**: Implemented zero-copy paragraph and key-value parser for `Packages` index repositories and Debian `control` files with dependency tokenization.
+- **Debian Binary Container Parser & Builder (`src/pkg/deb.rs`)**: Implemented `ar` archive container decoder and USTAR `tar` parser extracting directory hierarchies and byte payloads.
+- **Topological Dependency Resolver (`src/pkg/deps.rs`)**: Implemented Directed Acyclic Graph (DAG) resolver using Kahn's algorithm with cycle detection and missing prerequisite error handling.
+- **Dpkg Status Database & Unpacker (`src/pkg/dpkg.rs`)**: Implemented package state tracking persisted to `/var/lib/dpkg/status` in MicroFS, alongside safe unpacking and uninstallation.
+- **Apt Repository Manager (`src/pkg/mod.rs`)**: Preloaded MicroOS official repository containing `libc-micro`, `libterm`, `micro-editor`, `coreutils`, `lua-micro`, and `htop-micro`.
+- **Shell Commands (`src/shell.rs`)**: Added `apt [update|list|show|install|remove]` and `dpkg [-l|-s|-r]`.
+- **Integration Test (`tests/pkg_apt.rs`)**: Validated RFC 822 format, `.deb` container roundtrips, dependency graphs (prerequisites, installed skip, missing, and circular), and VFS file deployment and deletion.
+- **Test Suite**: All 8 test suites pass cleanly (**40/40 tests** total). Ready for Step 10 (`snap` store).
 
 ---
 

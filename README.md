@@ -21,8 +21,8 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 6 | LAN networking (e1000, smoltcp) | ✅ Done |
 | Step 7 | WiFi layer (honest simulation & driver trait) | ✅ Done |
 | Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | ✅ Done |
-| Step 9 | Package manager `apt` / `aptitude` | 🔲 Next |
-| Step 10 | Package store `snap` | 🔲 Planned |
+| Step 9 | Package manager `apt` / `aptitude` | ✅ Done |
+| Step 10 | Package store `snap` | 🔲 Next |
 | Step 11 | Final integration and presentation | 🔲 Planned |
 
 See [PROGRESS.md](PROGRESS.md) for detailed milestone notes and [BOOT_TIMES.md](BOOT_TIMES.md) for timing progression.
@@ -82,8 +82,14 @@ micro_os-main/
 │   │   ├── mod.rs       # Module re-exports
 │   │   ├── microfs.rs   # Ext2-style on-disk filesystem (Superblock, Bitmaps, Inodes, DirEntries)
 │   │   └── vfs.rs       # Virtual File System layer (mount, path resolution, cwd, file operations)
+│   ├── pkg/             # Package management subsystem
+│   │   ├── mod.rs       # AptManager interface and preloaded repository definitions
+│   │   ├── deb.rs       # .deb container parser/builder (ar archive + USTAR tar reader)
+│   │   ├── deps.rs      # Topological dependency graph resolver (Kahn's algorithm)
+│   │   ├── dpkg.rs      # Dpkg status DB (/var/lib/dpkg/status) and VFS unpacker
+│   │   └── rfc822.rs    # RFC 822 / Debian 822 Packages & control parser
 │   ├── rtc.rs           # CMOS RTC real-time clock and PIT system uptime
-│   ├── shell.rs         # Interactive CLI shell (storage, LAN, WiFi, hardware: lscpu, acpi, nvme, ifconfig, etc.)
+│   ├── shell.rs         # Interactive CLI shell (apt, dpkg, storage, LAN, WiFi, hardware: lscpu, acpi, nvme, ifconfig)
 │   ├── task/            # Cooperative asynchronous multitasking
 │   │   ├── mod.rs       # Task and TaskId abstractions
 │   │   ├── executor.rs  # Async Executor with idle sleep (enable_and_hlt)
@@ -102,6 +108,7 @@ micro_os-main/
 │   ├── hardware.rs        # Integration test: CPUID brand/features, ACPI checksums & tables, NVMe queues
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
 │   ├── networking.rs      # Integration test: IPv4 parser, DMA descriptors, ICMP formatting, gateway ping
+│   ├── pkg_apt.rs         # Integration test: RFC 822 parser, .deb ar/tar unpacker, dependency resolver, dpkg status
 │   ├── stack_overflow.rs  # Integration test: double-fault stack switching via IST
 │   └── wifi.rs            # Integration test: AP properties, 802.11 MAC headers, scanning, WPA2 handshake
 ├── docs/                # Per-step documentation
@@ -113,7 +120,8 @@ micro_os-main/
 │   ├── STEP_05_iso_and_vmware.md
 │   ├── STEP_06_lan_networking.md
 │   ├── STEP_07_wifi_layer.md
-│   └── STEP_08_laptop_hardware.md
+│   ├── STEP_08_laptop_hardware.md
+│   └── STEP_09_package_manager_apt.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)

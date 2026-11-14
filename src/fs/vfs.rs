@@ -125,47 +125,104 @@ impl Vfs {
         Ok(())
     }
 
-    pub fn make_dir(&mut self, name: &str) -> Result<(), &'static str> {
-        let parent_dir = self.current_dir_inode;
-        let dev = self.dev()?;
-        let new_inode_id = MicroFs::alloc_inode(dev, FileType::Directory)?;
-        let data_block = MicroFs::alloc_block(dev)?;
-
-        // Populate new dir with '.' and '..'
-        let dot = DirEntry::new(new_inode_id, FileType::Directory, ".");
-        let dotdot = DirEntry::new(parent_dir, FileType::Directory, "..");
-        let mut dir_buf = [0u8; 512];
-        unsafe {
-            let ptr_dot = &dot as *const DirEntry as *const u8;
-            dir_buf[0..64].copy_from_slice(core::slice::from_raw_parts(ptr_dot, 64));
-            let ptr_dotdot = &dotdot as *const DirEntry as *const u8;
-            dir_buf[64..128].copy_from_slice(core::slice::from_raw_parts(ptr_dotdot, 64));
+    fn split_parent_and_name(path: &str) -> (&str, &str) {
+        let clean = path.trim_end_matches('/');
+        if clean.is_empty() {
+            return ("/", "");
         }
-        dev.write_sector(data_block as u64, &dir_buf)?;
+        if let Some(pos) = clean.rfind('/') {
+            let parent = if pos == 0 { "/" } else { &clean[..pos] };
+            let name = &clean[pos + 1..];
+            (parent, name)
+        } else {
+            ("", clean)
+        }
+    }
 
-        let mut inode = MicroFs::read_inode(dev, new_inode_id)?;
-        inode.size_bytes = 128;
-        inode.direct_blocks[0] = data_block;
-        MicroFs::write_inode(dev, new_inode_id, &inode)?;
+    pub fn make_dir_p(&mut self, path: &str) -> Result<(), &'static str> {
+        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() {
+            return Ok(());
+        }
 
-        MicroFs::add_dir_entry(dev, parent_dir, name, new_inode_id, FileType::Directory)
+        let mut curr_inode = if path.starts_with('/') {
+            ROOT_INODE_ID
+        } else {
+            self.current_dir_inode
+        };
+
+        for part in parts {
+            let dev = self.dev()?;
+            let inode = MicroFs::read_inode(dev, curr_inode)?;
+            let entries = MicroFs::read_dir(dev, &inode)?;
+            if let Some(existing) = entries.iter().find(|e| e.name_as_str() == part) {
+                if existing.file_type != FileType::Directory as u8 {
+                    return Err("Path component is not a directory");
+                }
+                curr_inode = existing.inode;
+            } else {
+                let new_inode_id = MicroFs::alloc_inode(dev, FileType::Directory)?;
+                let data_block = MicroFs::alloc_block(dev)?;
+                let dot = DirEntry::new(new_inode_id, FileType::Directory, ".");
+                let dotdot = DirEntry::new(curr_inode, FileType::Directory, "..");
+                let mut dir_buf = [0u8; 512];
+                unsafe {
+                    let ptr_dot = &dot as *const DirEntry as *const u8;
+                    dir_buf[0..64].copy_from_slice(core::slice::from_raw_parts(ptr_dot, 64));
+                    let ptr_dotdot = &dotdot as *const DirEntry as *const u8;
+                    dir_buf[64..128].copy_from_slice(core::slice::from_raw_parts(ptr_dotdot, 64));
+                }
+                dev.write_sector(data_block as u64, &dir_buf)?;
+
+                let mut in_node = MicroFs::read_inode(dev, new_inode_id)?;
+                in_node.size_bytes = 128;
+                in_node.direct_blocks[0] = data_block;
+                MicroFs::write_inode(dev, new_inode_id, &in_node)?;
+
+                MicroFs::add_dir_entry(dev, curr_inode, part, new_inode_id, FileType::Directory)?;
+                curr_inode = new_inode_id;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn make_dir(&mut self, name: &str) -> Result<(), &'static str> {
+        self.make_dir_p(name)
     }
 
     pub fn touch(&mut self, name: &str) -> Result<(), &'static str> {
-        let parent_dir = self.current_dir_inode;
+        let (parent_path, file_name) = Self::split_parent_and_name(name);
+        if file_name.is_empty() {
+            return Err("Invalid file name");
+        }
+        let parent_dir = if parent_path.is_empty() {
+            self.current_dir_inode
+        } else {
+            self.make_dir_p(parent_path)?;
+            self.resolve_path(parent_path)?
+        };
         let dev = self.dev()?;
         let new_inode_id = MicroFs::alloc_inode(dev, FileType::Regular)?;
-        MicroFs::add_dir_entry(dev, parent_dir, name, new_inode_id, FileType::Regular)
+        MicroFs::add_dir_entry(dev, parent_dir, file_name, new_inode_id, FileType::Regular)
     }
 
     pub fn write_file(&mut self, name: &str, data: &[u8]) -> Result<usize, &'static str> {
         let target_inode = match self.resolve_path(name) {
             Ok(id) => id,
             Err(_) => {
-                let parent_dir = self.current_dir_inode;
+                let (parent_path, file_name) = Self::split_parent_and_name(name);
+                if file_name.is_empty() {
+                    return Err("Invalid file name");
+                }
+                let parent_dir = if parent_path.is_empty() {
+                    self.current_dir_inode
+                } else {
+                    self.make_dir_p(parent_path)?;
+                    self.resolve_path(parent_path)?
+                };
                 let dev = self.dev()?;
                 let new_inode_id = MicroFs::alloc_inode(dev, FileType::Regular)?;
-                MicroFs::add_dir_entry(dev, parent_dir, name, new_inode_id, FileType::Regular)?;
+                MicroFs::add_dir_entry(dev, parent_dir, file_name, new_inode_id, FileType::Regular)?;
                 new_inode_id
             }
         };
@@ -188,9 +245,17 @@ impl Vfs {
     }
 
     pub fn remove(&mut self, name: &str) -> Result<(), &'static str> {
-        let parent_dir = self.current_dir_inode;
+        let (parent_path, file_name) = Self::split_parent_and_name(name);
+        if file_name.is_empty() {
+            return Err("Invalid path");
+        }
+        let parent_dir = if parent_path.is_empty() {
+            self.current_dir_inode
+        } else {
+            self.resolve_path(parent_path)?
+        };
         let dev = self.dev()?;
-        MicroFs::remove_entry(dev, parent_dir, name)
+        MicroFs::remove_entry(dev, parent_dir, file_name)
     }
 
     pub fn disk_usage(&mut self) -> Result<(u32, u32, u32, u32, u32), &'static str> {

@@ -65,3 +65,7 @@ harness = false
 [[test]]
 name = "hardware"
 harness = false
+
+[[test]]
+name = "pkg_apt"
+harness = false

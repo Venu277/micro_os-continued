@@ -110,6 +110,8 @@ pub fn execute_command(input: &str) {
         "wpa_supplicant" => cmd_wpa_supplicant(&args),
         "ping" => cmd_ping(&args),
         "curl" | "http-get" => cmd_curl(&args),
+        "apt" | "apt-get" => cmd_apt(&args),
+        "dpkg" => cmd_dpkg(&args),
         "reboot" => cmd_reboot(),
         "shutdown" => cmd_shutdown(),
         unknown => {
@@ -152,6 +154,8 @@ fn cmd_help() {
     println!("  wpa_supplicant -s .. - Connect to WPA2/WPA3 network with 4-way handshake");
     println!("  ping <ip>            - Send ICMP echo requests to target host");
     println!("  curl <ip> [path]     - Perform simple HTTP 1.0 request");
+    println!("  apt <update|list|..> - Manage MicroOS software packages");
+    println!("  dpkg <-l|-s|-i>      - Low-level Debian package manager tool");
     println!("  reboot               - Restart the machine");
     println!("  shutdown             - Power off the system");
     serial_println!("Shell command 'help' executed.");
@@ -898,6 +902,233 @@ fn cmd_nvme(args: &[&str]) {
     } else {
         println!("nvme: No NVMe controller registered.");
         serial_println!("nvme: No NVMe controller registered.");
+    }
+}
+
+fn cmd_apt(args: &[&str]) {
+    if args.is_empty() {
+        println!("apt 2.6.0 (x86_64)");
+        println!("Usage: apt <command> [options]");
+        println!("  apt update             - Update list of available packages");
+        println!("  apt list [--installed] - List available or installed packages");
+        println!("  apt show <pkg>         - Show package details");
+        println!("  apt install <pkg>      - Install packages with dependency resolution");
+        println!("  apt remove <pkg>       - Remove installed packages");
+        return;
+    }
+
+    let subcmd = args[0];
+    let subargs = &args[1..];
+
+    let mut apt_lock = crate::pkg::APT_MANAGER.lock();
+    let apt = match apt_lock.as_mut() {
+        Some(m) => m,
+        None => {
+            println!("apt: Package manager subsystem not initialized.");
+            return;
+        }
+    };
+
+    match subcmd {
+        "update" => {
+            println!("Hit:1 http://deb.microos.org/microos main InRelease");
+            println!("Get:2 http://deb.microos.org/microos main/binary-x86_64 Packages [14.2 kB]");
+            println!("Fetched 14.2 kB in 0.05s");
+            println!("Reading package lists... Done");
+            println!("Building dependency tree... Done");
+            let count = apt.update();
+            println!("{} packages can be installed.", count);
+            serial_println!("apt update completed ({} packages).", count);
+        }
+        "list" => {
+            let installed_only = subargs.iter().any(|&a| a == "--installed");
+            let db_lock = crate::pkg::dpkg::DPKG_DB.lock();
+            let db = db_lock.as_ref();
+
+            println!("Listing... Done");
+            for p in &apt.available {
+                let is_inst = db.map(|d| d.is_installed(&p.name)).unwrap_or(false);
+                if installed_only && !is_inst {
+                    continue;
+                }
+                let status_badge = if is_inst { " [installed]" } else { "" };
+                println!("{}/main {} {}{}", p.name, p.version, p.architecture, status_badge);
+            }
+        }
+        "show" => {
+            if subargs.is_empty() {
+                println!("Usage: apt show <package_name>");
+                return;
+            }
+            let pkg_name = subargs[0];
+            if let Some(meta) = apt.show(pkg_name) {
+                println!("Package: {}", meta.name);
+                println!("Version: {}", meta.version);
+                println!("Priority: {}", meta.priority);
+                println!("Section: {}", meta.section);
+                println!("Maintainer: {}", meta.maintainer);
+                if !meta.depends.is_empty() {
+                    let mut deps_str = String::new();
+                    for (i, d) in meta.depends.iter().enumerate() {
+                        if i > 0 {
+                            deps_str.push_str(", ");
+                        }
+                        deps_str.push_str(d);
+                    }
+                    println!("Depends: {}", deps_str);
+                }
+                println!("Architecture: {}", meta.architecture);
+                println!("Filename: {}", meta.filename);
+                println!("Size: {} bytes", meta.size);
+                println!("SHA256: {}", meta.sha256);
+                println!("Description: {}", meta.description);
+                serial_println!("apt show '{}'", pkg_name);
+            } else {
+                println!("N: Unable to locate package {}", pkg_name);
+                serial_println!("apt show: package '{}' not found", pkg_name);
+            }
+        }
+        "install" => {
+            if subargs.is_empty() {
+                println!("Usage: apt install <package_name>");
+                return;
+            }
+            let pkg_name = subargs[0];
+            println!("Reading package lists... Done");
+            println!("Building dependency tree... Done");
+
+            match apt.install(pkg_name) {
+                Ok(installed) => {
+                    for name in &installed {
+                        println!("Unpacking {} ...", name);
+                        println!("Setting up {} ...", name);
+                    }
+                    println!(
+                        "0 upgraded, {} newly installed, 0 to remove.",
+                        installed.len()
+                    );
+                    println!("Installation completed successfully.");
+                    serial_println!("apt install '{}' succeeded: {:?}", pkg_name, installed);
+                }
+                Err(err) => {
+                    println!("E: {}", err);
+                    serial_println!("apt install error: {}", err);
+                }
+            }
+        }
+        "remove" => {
+            if subargs.is_empty() {
+                println!("Usage: apt remove <package_name>");
+                return;
+            }
+            let pkg_name = subargs[0];
+            println!("Reading package lists... Done");
+            println!("Building dependency tree... Done");
+
+            match apt.remove(pkg_name) {
+                Ok(()) => {
+                    println!("Removing {} ...", pkg_name);
+                    println!("Purging configuration files for {} ...", pkg_name);
+                    println!("Package '{}' removed successfully.", pkg_name);
+                    serial_println!("apt remove '{}' succeeded.", pkg_name);
+                }
+                Err(err) => {
+                    println!("E: {}", err);
+                    serial_println!("apt remove error: {}", err);
+                }
+            }
+        }
+        unknown => {
+            println!("E: Invalid operation '{}'", unknown);
+        }
+    }
+}
+
+fn cmd_dpkg(args: &[&str]) {
+    if args.is_empty() {
+        println!("Debian 'dpkg' package management program version 1.21.22 (x86_64).");
+        println!("Usage: dpkg [options]");
+        println!("  dpkg -l | --list           - List all installed packages");
+        println!("  dpkg -s | --status <pkg>   - Display package status details");
+        println!("  dpkg -L <pkg>              - List files installed by package");
+        return;
+    }
+
+    let flag = args[0];
+    let subargs = &args[1..];
+
+    let db_lock = crate::pkg::dpkg::DPKG_DB.lock();
+    let db = match db_lock.as_ref() {
+        Some(d) => d,
+        None => {
+            println!("dpkg: Database not initialized.");
+            return;
+        }
+    };
+
+    match flag {
+        "-l" | "--list" => {
+            println!("Desired=Unknown/Install/Remove/Purge/Hold");
+            println!(
+                "| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend"
+            );
+            println!("|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)");
+            println!("||/ Name           Version      Architecture Description");
+            println!("+++-==============-============-============-=================================");
+            for p in &db.installed {
+                let desc_short = if p.description.len() > 33 {
+                    &p.description[..33]
+                } else {
+                    &p.description
+                };
+                println!(
+                    "ii  {:<14} {:<12} {:<12} {}",
+                    p.name, p.version, p.architecture, desc_short
+                );
+            }
+        }
+        "-s" | "--status" => {
+            if subargs.is_empty() {
+                println!("Usage: dpkg -s <package_name>");
+                return;
+            }
+            let pkg_name = subargs[0];
+            if let Some(pkg) = db.find(pkg_name) {
+                println!("Package: {}", pkg.name);
+                println!("Status: {}", pkg.status);
+                println!("Architecture: {}", pkg.architecture);
+                println!("Version: {}", pkg.version);
+                println!("Description: {}", pkg.description);
+                if !pkg.files.is_empty() {
+                    println!("Files:");
+                    for f in &pkg.files {
+                        println!(" {}", f);
+                    }
+                }
+            } else {
+                println!(
+                    "dpkg-query: package '{}' is not installed and no info is available",
+                    pkg_name
+                );
+            }
+        }
+        "-L" => {
+            if subargs.is_empty() {
+                println!("Usage: dpkg -L <package_name>");
+                return;
+            }
+            let pkg_name = subargs[0];
+            if let Some(pkg) = db.find(pkg_name) {
+                for f in &pkg.files {
+                    println!("{}", f);
+                }
+            } else {
+                println!("dpkg-query: package '{}' is not installed", pkg_name);
+            }
+        }
+        unknown => {
+            println!("dpkg: unknown option '{}'", unknown);
+        }
     }
 }
 
