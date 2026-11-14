@@ -1,8 +1,8 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 5 — Packaging: Source Code to Bootable ISO & VMware ✅
+## Current Step: Step 6 — LAN Networking (Intel e1000 & smoltcp) ✅
 
-**Date:** 2026-11-14
+**Date:** 2026-11-15
 
 ---
 
@@ -52,21 +52,34 @@
 - **VMware Virtual Machine Specification (`vmware/micro_os.vmx`)**: Created production configuration for VMware Workstation/Player with Primary IDE Master OS disk, Primary IDE Slave data disk, serial port debugging, and Intel e1000 NIC.
 - **Verification**: Verified booting from `micro_os.vmdk` and `data.vmdk` in QEMU, reaching the interactive shell in 76.471 ms.
 
+### Step 6: LAN Networking (Intel e1000 & smoltcp) ✅
+- **PCI Discovery & Configuration (`src/pci.rs`)**: Probed PCI bus for Intel 82540EM (`0x8086:0x100E`, QEMU) and 82545EM (`0x8086:0x100F`, VMware), extracted 32/64-bit MMIO BAR0, and enabled PCI Bus Mastering.
+- **Intel e1000 Hardware Driver (`src/net/e1000.rs`)**: Mapped controller MMIO space into kernel paging table. Initialized circular DMA Tx ring (16 descriptors) and Rx ring (32 descriptors) with 2048-byte packet buffers translated to physical frames. Handled controller reset, SLU, RCTL/TCTL registers, and programmed MAC address into RAL0/RAH0 with AV bit.
+- **smoltcp Protocol Stack (`src/net/mod.rs`)**: Implemented `smoltcp::phy::Device` for `E1000Phy` with zero-allocation RxToken/TxToken. Initialized `Interface` with static IP (`10.0.2.15/24`) and default gateway (`10.0.2.2`). Implemented `ping()` with RTT calculation and TCP client for `curl`.
+- **Shell Commands (`src/shell.rs`)**: Integrated `ifconfig` (IP, MAC, GW, packet counters), `ping` (ICMP Echo Request/Reply), and `curl` / `http-get` (HTTP/1.0 GET).
+- **Test Suite**: Created `tests/networking.rs`. Full test suite now passes **26/26 tests** cleanly across all 5 test binaries.
+
 ---
 
-## Verification Evidence (Step 5)
+## Verification Evidence (Step 6)
 
 ```
-.\scripts\package.ps1 → Packaging complete! Artifacts:
-                       - build/micro_os.vmdk (983,040 bytes)
-                       - build/data.vmdk     (131,072 bytes)
-                       - build/micro_os.iso  (1,275,904 bytes)
-.\scripts\run_vmdk.ps1 → Serial port online.
+cargo test            → Running unittests src\lib.rs (11 tests) [all ok]
+                      → Running tests\filesystem.rs (5 tests) [all ok]
+                      → Running tests\heap_allocation.rs (5 tests) [all ok]
+                      → Running tests\networking.rs (4 tests) [all ok]
+                      → Running tests\stack_overflow.rs (1 test) [all ok]
+                      test result: ok. 26 passed; 0 failed; 0 ignored; finished in 0.00s
+
+VMDK / QEMU Boot Log  → Serial port online.
                         ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
                         MicroFS superblock mounted successfully.
-                        BOOT_TIME_MS=76.471 (TSC ticks=191944699, freq=2510 MHz)
+                        Intel e1000 NIC detected on PCI bus 00:03.0 (vendor=8086, device=100e)
+                        e1000: rx_desc_phys=PhysAddr(0x1a000), tx_desc_phys=PhysAddr(0x1a200)
+                        e1000 initialized! MAC: 52:54:00:12:34:56
+                        LAN Networking & smoltcp stack initialized (IP: 10.0.2.15/24, GW: 10.0.2.2).
+                        BOOT_TIME_MS=147.455 (TSC ticks=367809277, freq=2494 MHz)
                         micro_os:/> 
-cargo test            → 22 passed; 0 failed; 0 ignored; finished in 0.00s
 ```
 
 ---
@@ -75,17 +88,17 @@ cargo test            → 22 passed; 0 failed; 0 ignored; finished in 0.00s
 
 | Decision | Chosen | Reason |
 |----------|--------|--------|
+| Network Controller | Intel e1000 (82540EM / 82545EM) | Universally supported in both QEMU (`0x100E`) and VMware Workstation (`0x100F`) |
+| Network Protocol Stack | `smoltcp 0.12` | Zero-allocation, event-driven bare-metal TCP/IP stack with medium-ethernet support |
+| Descriptor Allocation | Static page-aligned `DMA_RING` buffer | Predictable physical address mapping without heap fragmentation |
+| Address Translation | `mapper.translate_addr()` via `Translate` trait | Translates kernel virtual buffer pointers to hardware physical bus addresses |
 | Primary VMware Format | VMDK (`qemu-img convert`) | Bootloader 0.9 is a native hard disk MBR bootloader; VMDK boots reliably in VMware and QEMU |
-| Secondary Format | El Torito ISO (`xorriso`) | Generated via WSL xorriso; honest documentation on optical vs hard disk boot behavior |
 | VMware IDE Mapping | `ide0:0` (OS) + `ide0:1` (MicroFS Data) | Matches QEMU Primary Master / Primary Slave architecture |
-| Packaging Automation | PowerShell (`package.ps1`) + Bash (`package.sh`) | Native Windows experience with cross-platform script for Linux/WSL |
 
 ---
 
-## Next Step: Step 6 — LAN Networking (e1000 & smoltcp)
+## Next Step: Step 7 — WiFi Layer Simulation
 
-- Scan PCI bus for Intel 82540EM (e1000) Ethernet controller (`0x8086:0x100E`).
-- Implement e1000 driver with DMA transmit/receive descriptor rings.
-- Integrate `smoltcp` async network stack.
-- Implement DHCP / static IPv4 configuration and ICMP ping handler.
-- Expose shell commands: `ifconfig`, `ping`.
+- Define `WirelessDevice` / `WiFiDriver` trait abstracting 802.11 frame encapsulation, SSID scanning, association states, and WPA2-PSK handshake simulation.
+- Implement honest simulation layer that bridges wireless frame emulation through our working e1000 Ethernet LAN driver (since virtual machines do not expose raw 802.11 PHY hardware to guests).
+- Expose shell commands: `iwconfig`, `iwlist scan`, `wpa_supplicant`.

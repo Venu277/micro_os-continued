@@ -99,6 +99,9 @@ pub fn execute_command(input: &str) {
         "rm" => cmd_rm(&args),
         "df" => cmd_df(),
         "mkfs" => cmd_mkfs(),
+        "ifconfig" => cmd_ifconfig(),
+        "ping" => cmd_ping(&args),
+        "curl" | "http-get" => cmd_curl(&args),
         "reboot" => cmd_reboot(),
         "shutdown" => cmd_shutdown(),
         unknown => {
@@ -131,6 +134,9 @@ fn cmd_help() {
     println!("  rm <name>            - Remove a file or empty directory");
     println!("  df                   - Show disk storage usage");
     println!("  mkfs                 - Format disk with clean MicroFS filesystem");
+    println!("  ifconfig             - Display network interface and IP details");
+    println!("  ping <ip>            - Send ICMP echo requests to target host");
+    println!("  curl <ip> [path]     - Perform simple HTTP 1.0 request");
     println!("  reboot               - Restart the machine");
     println!("  shutdown             - Power off the system");
     serial_println!("Shell command 'help' executed.");
@@ -384,6 +390,116 @@ fn cmd_mkfs() {
             println!("mkfs: format failed: {}", err);
             serial_println!("mkfs: error: {}", err);
         }
+    }
+}
+
+pub fn parse_ipv4(s: &str) -> Option<smoltcp::wire::Ipv4Address> {
+    let mut octets = [0u8; 4];
+    let mut count = 0;
+    for part in s.split('.') {
+        if count >= 4 {
+            return None;
+        }
+        let val: u8 = part.parse().ok()?;
+        octets[count] = val;
+        count += 1;
+    }
+    if count == 4 {
+        Some(smoltcp::wire::Ipv4Address::new(
+            octets[0], octets[1], octets[2], octets[3],
+        ))
+    } else {
+        None
+    }
+}
+
+fn cmd_ifconfig() {
+    let net_lock = crate::net::NETWORK.lock();
+    if let Some(ref stack) = *net_lock {
+        let info = stack.ifconfig();
+        println!("{}", info);
+        serial_println!("{}", info);
+    } else {
+        println!("ifconfig: No network interface initialized.");
+        serial_println!("ifconfig: No network interface initialized.");
+    }
+}
+
+fn cmd_ping(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: ping <ipv4_address>");
+        return;
+    }
+    let target_str = args[0];
+    let target_ip = match parse_ipv4(target_str) {
+        Some(ip) => ip,
+        None => {
+            println!("ping: invalid IPv4 address: '{}'", target_str);
+            return;
+        }
+    };
+
+    println!("PING {} 56(84) bytes of data.", target_ip);
+    serial_println!("PING {} 56(84) bytes of data.", target_ip);
+
+    let mut net_lock = crate::net::NETWORK.lock();
+    if let Some(ref mut stack) = *net_lock {
+        for seq in 1..=4 {
+            match stack.ping(target_ip, 2000) {
+                Ok(rtt) => {
+                    println!("64 bytes from {}: icmp_seq={} time={} ms", target_ip, seq, rtt);
+                    serial_println!("64 bytes from {}: icmp_seq={} time={} ms", target_ip, seq, rtt);
+                }
+                Err(err) => {
+                    println!("From {}: icmp_seq={} Destination Host Unreachable ({})", target_ip, seq, err);
+                    serial_println!("From {}: icmp_seq={} Destination Host Unreachable ({})", target_ip, seq, err);
+                }
+            }
+        }
+    } else {
+        println!("ping: Network stack not active.");
+        serial_println!("ping: Network stack not active.");
+    }
+}
+
+fn cmd_curl(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: curl <ipv4_address> [path] [port]");
+        return;
+    }
+    let target_str = args[0];
+    let target_ip = match parse_ipv4(target_str) {
+        Some(ip) => ip,
+        None => {
+            println!("curl: invalid IPv4 address: '{}'", target_str);
+            return;
+        }
+    };
+    let path = if args.len() > 1 { args[1] } else { "/" };
+    let port: u16 = if args.len() > 2 {
+        args[2].parse().unwrap_or(80)
+    } else {
+        80
+    };
+
+    println!("Connecting to {}:{} for '{}'...", target_ip, port, path);
+    serial_println!("curl: Connecting to {}:{} for '{}'...", target_ip, port, path);
+
+    let mut net_lock = crate::net::NETWORK.lock();
+    if let Some(ref mut stack) = *net_lock {
+        match stack.http_get(target_ip, port, path, 5000) {
+            Ok(body) => {
+                println!("{}", body);
+                serial_println!("{}", body);
+            }
+            Err(err) => {
+                println!("curl error: {}", err);
+                serial_println!("curl error: {}", err);
+            }
+        }
+    } else {
+        println!("curl: Network stack not active.");
+        serial_println!("curl: Network stack not active.");
     }
 }
 

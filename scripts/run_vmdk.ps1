@@ -23,5 +23,7 @@ Write-Host "Booting MicroOS VMDK in QEMU (IDE Master: micro_os.vmdk, IDE Slave: 
 & qemu-system-x86_64 `
     -drive format=vmdk,file=$KernelVmdk,if=ide,index=0,media=disk `
     -drive format=vmdk,file=$DataVmdk,if=ide,index=1,media=disk `
+    -device e1000,netdev=net0 `
+    -netdev user,id=net0 `
     -serial stdio `
     -m 512M

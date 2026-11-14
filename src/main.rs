@@ -22,7 +22,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let tsc_start: u64 = unsafe { core::arch::x86_64::_rdtsc() };
 
     println!("==================================================");
-    println!("   MicroOS v0.5 - Async Kernel & Interactive Shell");
+    println!("   MicroOS v0.6 - LAN Networking & smoltcp Stack");
     println!("==================================================");
     println!("Kernel booted successfully!");
     micro_os::serial_println!("Serial port online.");
@@ -42,7 +42,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 4. Initialize Storage & File System (ATA probe, MicroFS mount)
     micro_os::init_storage();
 
-    // 5. Measure elapsed TSC ticks up to shell prompt readiness
+    // 5. Initialize LAN Networking (e1000 driver & smoltcp stack)
+    micro_os::net::init_network(&mut mapper, &mut frame_allocator);
+
+    // 6. Measure elapsed TSC ticks up to shell prompt readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 

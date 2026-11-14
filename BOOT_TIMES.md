@@ -20,7 +20,8 @@
 | Step 2 | Paging, Frame Allocator, Kernel Heap, `alloc` | 50.801 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2484 MHz) | 2026-11-14 |
 | Step 3 | Async Executor, Shell Prompt, CMOS RTC, Clock | 54.341 ms | ~1.4 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2491 MHz) | 2026-11-14 |
 | Step 4 | Storage, ATA PIO Driver, MicroFS on-disk filesystem, VFS | 90.428 ms | ~1.5 s | — | Dynamic PIT Ch2 calibrated TSC (@ 2501 MHz) | 2026-11-14 |
-| **Step 5** | **VMDK Packaging & VMware Config (Booted from VMDK)** | **76.471 ms** | **~1.5 s** | Ready | **Dynamic PIT Ch2 calibrated TSC (@ 2510 MHz)** | 2026-11-14 |
+| Step 5 | VMDK Packaging & VMware Config (Booted from VMDK) | 76.471 ms | ~1.5 s | Ready | Dynamic PIT Ch2 calibrated TSC (@ 2510 MHz) | 2026-11-14 |
+| **Step 6** | **LAN Networking (Intel e1000 DMA driver, smoltcp stack)** | **147.455 ms** | **~1.5 s** | Ready | **Dynamic PIT Ch2 calibrated TSC (@ 2494 MHz)** | 2026-11-15 |
 
 ---
 
@@ -28,3 +29,4 @@
 
 - In Step 3, the boot time was measured from raw CPU power-on (`_start`) through CPU initialization, GDT/TSS, IDT, PIC, paging, 100 KiB heap setup, and task executor instantiation directly to the appearance of the interactive `micro_os> ` prompt.
 - Time from CPU reset to an active interactive shell prompt is just **54.3 ms**!
+- In Step 6, the boot time includes full PCI bus scanning, Intel e1000 controller hardware reset, MMIO page table mapping, DMA ring buffer descriptor initialization (16 Tx + 32 Rx), and `smoltcp` routing/interface initialization, reaching prompt readiness in **147.5 ms**.

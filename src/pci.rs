@@ -100,3 +100,32 @@ pub fn enumerate_pci() -> Vec<PciDevice> {
 
     devices
 }
+
+impl PciDevice {
+    pub fn read_bar(&self, bar_idx: u8) -> u32 {
+        if bar_idx > 5 {
+            return 0;
+        }
+        pci_read_u32(self.bus, self.device, self.function, 0x10 + bar_idx * 4)
+    }
+
+    pub fn enable_bus_mastering(&self) {
+        let cmd = pci_read_u32(self.bus, self.device, self.function, 0x04);
+        // Bit 0: I/O Space, Bit 1: Memory Space, Bit 2: Bus Master
+        pci_write_u32(self.bus, self.device, self.function, 0x04, cmd | 0x07);
+    }
+}
+
+pub fn find_e1000() -> Option<PciDevice> {
+    enumerate_pci().into_iter().find(|dev| {
+        dev.vendor_id == 0x8086
+            && matches!(
+                dev.device_id,
+                0x100E // 82540EM (QEMU default)
+                    | 0x1004 // 82543GC
+                    | 0x100F // 82545EM (VMware Workstation default)
+                    | 0x1079 // 82546GB
+                    | 0x107C // 82541PI
+            )
+    })
+}
