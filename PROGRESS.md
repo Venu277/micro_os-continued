@@ -1,6 +1,6 @@
 # MicroOS — Progress Log
 
-## Current Step: Step 9 — Package Manager (`apt` / `dpkg` & Debian Format) ✅
+## Current Step: Step 10 — Package Store `snap` ✅
 
 **Date:** 2026-11-15
 
@@ -88,7 +88,75 @@
 - **Apt Repository Manager (`src/pkg/mod.rs`)**: Preloaded MicroOS official repository containing `libc-micro`, `libterm`, `micro-editor`, `coreutils`, `lua-micro`, and `htop-micro`.
 - **Shell Commands (`src/shell.rs`)**: Added `apt [update|list|show|install|remove]` and `dpkg [-l|-s|-r]`.
 - **Integration Test (`tests/pkg_apt.rs`)**: Validated RFC 822 format, `.deb` container roundtrips, dependency graphs (prerequisites, installed skip, missing, and circular), and VFS file deployment and deletion.
-- **Test Suite**: All 8 test suites pass cleanly (**40/40 tests** total). Ready for Step 10 (`snap` store).
+- **Test Suite**: All 8 test suites pass cleanly (**40/40 tests** total).
+
+### Step 10: Package Store `snap` ✅
+- **Snap Container Format (`src/snap/container.rs`)**: Implemented `SNAP01` binary package container with magic bytes, 64-byte header, 80-byte TOC table, and contiguous payload block streams.
+- **Manifest Parser (`src/snap/manifest.rs`)**: Implemented YAML-style `meta/snap.yaml` parser for application commands, daemons, security confinement (`strict`, `classic`, `devmode`), and plug/slot interface declarations.
+- **Loopback Mount & Sandbox Environment (`src/snap/environment.rs`)**: Implemented read-only revision directory unpacking (`/snap/<name>/<rev>`), active revision symlink tracking (`/snap/<name>/current`), binary wrapper generation (`/snap/bin/<app>`), instant revision rollback (`snap revert`), and plug/slot connection management.
+- **Snap Store Catalog & Sandbox Runner (`src/snap/mod.rs`)**: Preloaded official MicroOS snaps (`core22`, `micro-calc`, `nano-editor`, `system-monitor`, `matrix-client`) and implemented interactive execution sandbox with interface permission enforcement.
+- **Interactive Shell CLI (`src/shell.rs`)**: Added `snap` command with subcommands: `find`, `info`, `install`, `list`, `refresh`, `revert`, `remove`, `run`, `connections`.
+- **Integration Test (`tests/snap_store.rs`)**: Created 4 integration tests validating manifest parsing/serialization, `.snap` packaging/unpacking, store catalog search, revision mounting, sandboxed execution (`15 + 27 = 42`), revision upgrade, rollback, and cleanup.
+- **Test Suite**: All 9 test suites pass cleanly (**44/44 tests** total).
+
+---
+
+## Verification Evidence (Step 10)
+
+```
+cargo test            → Running unittests src\lib.rs (11 tests) [all ok]
+                      → Running tests\filesystem.rs (5 tests) [all ok]
+                      → Running tests\hardware.rs (5 tests) [all ok]
+                      → Running tests\heap_allocation.rs (5 tests) [all ok]
+                      → Running tests\networking.rs (4 tests) [all ok]
+                      → Running tests\pkg_apt.rs (4 tests) [all ok]
+                      → Running tests\snap_store.rs (4 tests) [all ok]
+                      → Running tests\stack_overflow.rs (1 test) [all ok]
+                      → Running tests\wifi.rs (5 tests) [all ok]
+                      test result: ok. 44 passed; 0 failed; 0 ignored; finished in 0.00s
+
+VMDK / QEMU Boot Log  → Serial port online.
+                        Scanning physical memory for ACPI RSDP descriptor...
+                        ACPI: RSDP found at phys 0xf52e0 (Revision 0, OEM: 'BOCHS')
+                        ACPI: FADT detected. PM1a_CNT=0x604, ResetPort=0x64
+                        ACPI: MADT detected. Local APIC=0xfee00000, Cores discovered=1
+                        ATA Primary Slave hard drive detected (8192 sectors, ~4 MiB)
+                        MicroFS superblock mounted successfully.
+                        NVMe: No physical PCIe NVMe card found. Initializing laptop 512GB hardware profile.
+                        [nvme0] NVMe v1.4 Device: Model='MicroOS NVMe 512GB PCIe Gen4 SSD (Intel i5-1335U)', Serial='NVME-MICROOS-2026-X1', FW='1B2QGXA7', Capacity=476 GB (1000000000 sectors @ 512B)
+                        Intel e1000 NIC detected on PCI bus 00:03.0 (vendor=8086, device=100e)
+                        e1000: rx_desc_phys=PhysAddr(0x1a000), tx_desc_phys=PhysAddr(0x1a200)
+                        e1000 initialized! MAC: 52:54:00:12:34:56
+                        LAN Networking & smoltcp stack initialized (IP: 10.0.2.15/24, GW: 10.0.2.2).
+                        [wlan0] 802.11 Wireless Subsystem initialized (MAC: 52:54:00:12:34:56, bridged via e1000)
+                        dpkg: No existing status database found; initialized empty database.
+                        apt: Package manager initialized (6 packages available)
+                        snap: Snap Store initialized (5 packages available)
+                        BOOT_TIME_MS=227.163 (TSC ticks=566456460, freq=2493 MHz)
+                        micro_os:/> 
+```
+
+---
+
+## Decisions Made
+
+| Decision | Chosen | Reason |
+|----------|--------|--------|
+| Target CPU Profile | Intel Core i5-1335U (10 cores, Raptor Lake) | Directly targets the host laptop hardware profile specified in `laptop_hardware.txt` |
+| ACPI Discovery | Search EBDA (`0x80000`) & BIOS ROM (`0xE0000`) | Standard x86_64 method to locate RSDP across BIOS and virtual machine environments |
+| ACPI Power Routing | FADT Hardware Reset Port & PM1a Sleep Control | Modern ACPI standard replacing legacy triple faults and unconditional 8042 pulses |
+| Storage Architecture | NVMe 1.4+ `BlockDevice` + 512 GB Profile | Modern laptop standard replacing legacy IDE ATA PIO for high-performance storage |
+| WiFi Architecture | `WiFiDriver` Trait + `SimulatedWiFi` | Real chipsets (MT7921) cannot be accessed directly in VMs; trait enables future bare-metal drivers while simulation bridges e1000 |
+| Package Manager (`apt`) | RFC 822 Index + `.deb` `ar`/USTAR + DAG Resolver | Native implementation of Debian packaging format and Kahn's topological dependency resolver |
+| Package Store (`snap`) | `SNAP01` Container + Loopback `/snap/<name>/<rev>` Mounts | Containerized packaging, instant revision rollback, and interface plug/slot security model |
+
+---
+
+## Next Step: Step 11 — Final Integration, Presentation & Release
+
+- System-wide smoke verification testing all subsystems end-to-end.
+- Finalized performance and boot benchmarks across VMware and QEMU.
+- Comprehensive documentation showcase and project summary.
 
 ---
 

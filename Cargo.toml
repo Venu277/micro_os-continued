@@ -69,3 +69,7 @@ harness = false
 [[test]]
 name = "pkg_apt"
 harness = false
+
+[[test]]
+name = "snap_store"
+harness = false

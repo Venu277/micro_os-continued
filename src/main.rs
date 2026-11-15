@@ -52,7 +52,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 7. Initialize Package Management Subsystem (apt / dpkg)
     micro_os::pkg::init_pkg();
 
-    // 8. Measure elapsed TSC ticks up to shell prompt readiness
+    // 8. Initialize Snap Store Subsystem
+    micro_os::snap::init_snap();
+
+    // 9. Measure elapsed TSC ticks up to shell prompt readiness
     let tsc_end: u64 = unsafe { core::arch::x86_64::_rdtsc() };
     let elapsed_ticks = tsc_end.wrapping_sub(tsc_start);
 

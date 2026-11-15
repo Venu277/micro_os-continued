@@ -112,6 +112,7 @@ pub fn execute_command(input: &str) {
         "curl" | "http-get" => cmd_curl(&args),
         "apt" | "apt-get" => cmd_apt(&args),
         "dpkg" => cmd_dpkg(&args),
+        "snap" => cmd_snap(&args),
         "reboot" => cmd_reboot(),
         "shutdown" => cmd_shutdown(),
         unknown => {
@@ -156,6 +157,7 @@ fn cmd_help() {
     println!("  curl <ip> [path]     - Perform simple HTTP 1.0 request");
     println!("  apt <update|list|..> - Manage MicroOS software packages");
     println!("  dpkg <-l|-s|-i>      - Low-level Debian package manager tool");
+    println!("  snap <cmd> [args...] - Universal sandboxed package store manager");
     println!("  reboot               - Restart the machine");
     println!("  shutdown             - Power off the system");
     serial_println!("Shell command 'help' executed.");
@@ -1128,6 +1130,209 @@ fn cmd_dpkg(args: &[&str]) {
         }
         unknown => {
             println!("dpkg: unknown option '{}'", unknown);
+        }
+    }
+}
+
+fn cmd_snap(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: snap <command> [<options>...]");
+        println!("Available commands:");
+        println!("  find [query]               - Search remote Snap Store for packages");
+        println!("  info <name>                - Show detailed metadata for a snap");
+        println!("  install <name> [--classic] - Install a snap from the store");
+        println!("  list                       - List installed snaps and their revisions");
+        println!("  refresh [name]             - Update installed snap to newest revision");
+        println!("  revert <name>              - Revert snap to previous installed revision");
+        println!("  remove <name>              - Remove an installed snap from system");
+        println!("  run <app> [args...]        - Run an installed sandboxed snap app");
+        println!("  connections [name]         - View plug and slot interface connections");
+        return;
+    }
+
+    let subcmd = args[0];
+    let subargs = &args[1..];
+
+    let mut lock = crate::snap::SNAP_MANAGER.lock();
+    let mgr = match lock.as_mut() {
+        Some(m) => m,
+        None => {
+            println!("snap: Snap manager not initialized");
+            return;
+        }
+    };
+
+    match subcmd {
+        "find" | "search" => {
+            let query = if subargs.is_empty() { "" } else { subargs[0] };
+            let results = mgr.find(query);
+            if results.is_empty() {
+                println!("No matching snaps found in store for '{}'", query);
+                return;
+            }
+            println!("{:<16} {:<10} {:<5} {:<12} {:<36}", "Name", "Version", "Rev", "Publisher", "Summary");
+            for p in results {
+                println!(
+                    "{:<16} {:<10} {:<5} {:<12} {:<36}",
+                    p.name, p.version, p.revision, p.publisher, p.summary
+                );
+            }
+        }
+        "info" => {
+            if subargs.is_empty() {
+                println!("Usage: snap info <name>");
+                return;
+            }
+            let name = subargs[0];
+            if let Some(pkg) = mgr.info(name) {
+                println!("name:        {}", pkg.name);
+                println!("summary:     {}", pkg.summary);
+                println!("publisher:   {}", pkg.publisher);
+                println!("version:     {}", pkg.version);
+                println!("revision:    {}", pkg.revision);
+                println!("channel:     {}", pkg.channel);
+                println!("confinement: {}", pkg.confinement.as_str());
+                println!("description:");
+                for line in pkg.description.lines() {
+                    println!("  {}", line);
+                }
+                if !pkg.apps.is_empty() {
+                    println!("commands:");
+                    for app in &pkg.apps {
+                        println!("  - snap run {}", app.name);
+                    }
+                }
+                if !pkg.plugs.is_empty() {
+                    println!("interfaces:");
+                    for plug in &pkg.plugs {
+                        println!("  - :{}", plug);
+                    }
+                }
+            } else {
+                println!("snap: package '{}' not found in store", name);
+            }
+        }
+        "install" => {
+            if subargs.is_empty() {
+                println!("Usage: snap install <name> [--channel=...] [--classic]");
+                return;
+            }
+            let name = subargs[0];
+            let mut channel = None;
+            let mut classic = false;
+
+            for arg in &subargs[1..] {
+                if arg.starts_with("--channel=") {
+                    channel = Some(&arg[10..]);
+                } else if *arg == "--classic" {
+                    classic = true;
+                }
+            }
+
+            println!("Installing '{}' from Snap Store...", name);
+            match mgr.install(name, channel, classic) {
+                Ok(()) => {
+                    let snap_info = mgr.info(name);
+                    let (ver, rev) = snap_info.map(|p| (p.version.as_str(), p.revision)).unwrap_or(("?", 0));
+                    println!("{} {} (rev {}) from {} installed", name, ver, rev, snap_info.map(|p| p.publisher.as_str()).unwrap_or("store"));
+                    println!("Mounted at: /snap/{}/{}", name, rev);
+                    println!("Alias: /snap/{}/current", name);
+                    println!("Binary link: /snap/bin/{}", name);
+                }
+                Err(err) => {
+                    println!("error: cannot install '{}': {}", name, err);
+                }
+            }
+        }
+        "list" => {
+            let installed = mgr.list();
+            if installed.is_empty() {
+                println!("No snaps are installed yet. Try 'snap install micro-calc'.");
+                return;
+            }
+            println!("{:<16} {:<10} {:<5} {:<10} {:<12} {:<10}", "Name", "Version", "Rev", "Tracking", "Publisher", "Notes");
+            for s in installed {
+                if let Some(active) = s.active_record() {
+                    let notes = if s.name == "core22" { "base" } else { "-" };
+                    println!(
+                        "{:<16} {:<10} {:<5} {:<10} {:<12} {:<10}",
+                        s.name, active.version, active.revision, s.channel, s.publisher, notes
+                    );
+                }
+            }
+        }
+        "refresh" => {
+            let target = if subargs.is_empty() { None } else { Some(subargs[0]) };
+            match mgr.refresh(target) {
+                Ok(updates) => {
+                    if updates.is_empty() {
+                        println!("All snaps up to date.");
+                    } else {
+                        for (name, rev) in updates {
+                            println!("{} refreshed to revision {}", name, rev);
+                        }
+                    }
+                }
+                Err(err) => println!("error: refresh failed: {}", err),
+            }
+        }
+        "revert" => {
+            if subargs.is_empty() {
+                println!("Usage: snap revert <name>");
+                return;
+            }
+            let name = subargs[0];
+            match mgr.revert(name) {
+                Ok(target_rev) => {
+                    println!("{} reverted to revision {}", name, target_rev);
+                    println!("Current alias updated to: /snap/{}/{}", name, target_rev);
+                }
+                Err(err) => println!("error: cannot revert '{}': {}", name, err),
+            }
+        }
+        "remove" => {
+            if subargs.is_empty() {
+                println!("Usage: snap remove <name>");
+                return;
+            }
+            let name = subargs[0];
+            match mgr.remove(name) {
+                Ok(()) => println!("{} removed", name),
+                Err(err) => println!("error: cannot remove '{}': {}", name, err),
+            }
+        }
+        "run" => {
+            if subargs.is_empty() {
+                println!("Usage: snap run <app> [args...]");
+                return;
+            }
+            let app = subargs[0];
+            let app_args = &subargs[1..];
+            match mgr.run(app, app_args) {
+                Ok(output) => print!("{}", output),
+                Err(err) => println!("error: cannot run '{}': {}", app, err),
+            }
+        }
+        "connections" => {
+            let target_name = if subargs.is_empty() { None } else { Some(subargs[0]) };
+            println!("{:<18} {:<24} {:<16} {:<10}", "Interface", "Plug", "Slot", "Notes");
+            for s in mgr.list() {
+                if let Some(target) = target_name {
+                    if s.name != target {
+                        continue;
+                    }
+                }
+                for c in &s.connections {
+                    let iface = c.slot.trim_start_matches(':');
+                    println!(
+                        "{:<18} {:<24} {:<16} {:<10}",
+                        iface, c.plug, c.slot, if c.connected { "-" } else { "manual" }
+                    );
+                }
+            }
+        }
+        unknown => {
+            println!("snap: unknown command '{}'. Run 'snap' for help.", unknown);
         }
     }
 }

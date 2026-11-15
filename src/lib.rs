@@ -26,6 +26,7 @@ pub mod pkg;
 pub mod rtc;
 pub mod serial;
 pub mod shell;
+pub mod snap;
 pub mod storage;
 pub mod task;
 pub mod vga_buffer;
