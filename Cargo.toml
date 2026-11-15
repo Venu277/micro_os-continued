@@ -73,3 +73,7 @@ harness = false
 [[test]]
 name = "snap_store"
 harness = false
+
+[[test]]
+name = "smoke_integration"
+harness = false

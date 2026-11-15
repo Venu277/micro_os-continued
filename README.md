@@ -23,7 +23,7 @@ toward a VMware-bootable OS with networking, storage, and a package manager.
 | Step 8 | Laptop hardware compatibility (UEFI, NVMe, ACPI) | ✅ Done |
 | Step 9 | Package manager `apt` / `aptitude` | ✅ Done |
 | Step 10 | Package store `snap` | ✅ Done |
-| Step 11 | Final integration and presentation | 🔲 Next |
+| Step 11 | Final integration and presentation | ✅ Done |
 
 See [PROGRESS.md](PROGRESS.md) for detailed milestone notes and [BOOT_TIMES.md](BOOT_TIMES.md) for timing progression.
 
@@ -114,6 +114,7 @@ micro_os-main/
 │   ├── heap_allocation.rs # Integration test: Box, dynamic Vec, multiple allocations, reuse
 │   ├── networking.rs      # Integration test: IPv4 parser, DMA descriptors, ICMP formatting, gateway ping
 │   ├── pkg_apt.rs         # Integration test: RFC 822 parser, .deb ar/tar unpacker, dependency resolver, dpkg status
+│   ├── smoke_integration.rs # Integration test: end-to-end smoke test across all subsystems
 │   ├── snap_store.rs      # Integration test: snap.yaml parser, SNAP01 containers, mount layout, rollback
 │   ├── stack_overflow.rs  # Integration test: double-fault stack switching via IST
 │   └── wifi.rs            # Integration test: AP properties, 802.11 MAC headers, scanning, WPA2 handshake
@@ -128,7 +129,8 @@ micro_os-main/
 │   ├── STEP_07_wifi_layer.md
 │   ├── STEP_08_laptop_hardware.md
 │   ├── STEP_09_package_manager_apt.md
-│   └── STEP_10_snap_store.md
+│   ├── STEP_10_snap_store.md
+│   └── STEP_11_final_integration_and_presentation.md
 ├── Cargo.toml           # Package manifest
 ├── rust-toolchain.toml  # Pins nightly-2025-06-01
 ├── x86_64-micro_os.json # Custom target spec (no_std, softfloat, ld.lld)
