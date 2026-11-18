@@ -2,7 +2,7 @@
 
 A hobby x86_64 operating system kernel written in Rust, built from scratch as a
 learning project. It boots in QEMU and is being developed step-by-step
-toward a VMware-bootable OS with networking, storage, and a package manager.
+toward a VMware-bootable OS with networking, storage, and a package manager. qemu
 
 > **Honest Scope:** See the [Honest Scope](#honest-scope) section below.
 
